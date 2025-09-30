@@ -1,0 +1,16 @@
+﻿env/
+backend/env/
+**/__pycache__/
+*.pyc
+*.log
+backend/uploads/**
+!backend/uploads/.gitkeep
+backend/models/**
+backend/checkpoints/**
+backend/SegDrawer/**
+*.pth
+*.pt
+*.safetensors
+*.ipynb_checkpoints
+.DS_Store
+*.tmp

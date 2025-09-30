@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Object Detection - AR Furniture App</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .header h1 {
+            color: #333;
+            margin: 0;
+            font-size: 2.5em;
+        }
+        
+        .header p {
+            color: #666;
+            margin: 10px 0 0 0;
+            font-size: 1.1em;
+        }
+        
+        .step {
+            margin: 30px 0;
+            padding: 25px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            background: #f9f9f9;
+        }
+        
+        .step h3 {
+            color: #333;
+            margin: 0 0 15px 0;
+            font-size: 1.3em;
+        }
+        
+        .upload-area {
+            border: 3px dashed #ccc;
+            border-radius: 10px;
+            padding: 40px;
+            text-align: center;
+            background: #fafafa;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .upload-area:hover {
+            border-color: #667eea;
+            background: #f0f4ff;
+        }
+        
+        .upload-area.dragover {
+            border-color: #667eea;
+            background: #e8f2ff;
+        }
+        
+        .objects-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 20px;
+            margin: 20px 0;
+        }
+        
+        .object-card {
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            padding: 15px;
+            text-align: center;
+            background: white;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .object-card:hover {
+            border-color: #667eea;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        
+        .object-card.selected {
+            border-color: #667eea;
+            background: #f0f4ff;
+        }
+        
+        .object-preview {
+            width: 100%;
+            height: 120px;
+            object-fit: cover;
+            border-radius: 5px;
+            margin-bottom: 10px;
+        }
+        
+        .furniture-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        
+        .furniture-card {
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            padding: 15px;
+            text-align: center;
+            background: white;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .furniture-card:hover {
+            border-color: #667eea;
+            transform: translateY(-2px);
+        }
+        
+        .furniture-card.selected {
+            border-color: #667eea;
+            background: #f0f4ff;
+        }
+        
+        .furniture-thumbnail {
+            width: 100%;
+            height: 100px;
+            object-fit: cover;
+            border-radius: 5px;
+            margin-bottom: 10px;
+        }
+        
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 1em;
+            transition: all 0.3s ease;
+            margin: 10px 5px;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+        
+        .btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+        
+        .result-image {
+            max-width: 100%;
+            border-radius: 10px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            margin: 20px 0;
+        }
+        
+        .uploaded-image-preview {
+            max-width: 300px;
+            height: auto;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            margin: 10px 0;
+        }
+        
+        .modal {
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .modal-content {
+            background-color: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+            max-width: 400px;
+            text-align: center;
+            position: relative;
+        }
+        
+        .close {
+            position: absolute;
+            top: 15px;
+            right: 20px;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+            color: #999;
+        }
+        
+        .close:hover {
+            color: #333;
+        }
+        
+        #qrCodeContainer {
+            margin: 20px 0;
+            display: flex;
+            justify-content: center;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+        
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🤖 AI Object Detection</h1>
+            <p>Upload an image and let AI detect all objects, then select which one to replace!</p>
+        </div>
+        
+        <!-- Step 1: Upload Image -->
+        <div class="step">
+            <h3>📸 Step 1: Upload Your Room Image</h3>
+            <div class="upload-area" id="uploadArea">
+                <p>📁 Click here or drag & drop your room image</p>
+                <input type="file" id="imageInput" accept="image/*" style="display: none;">
+            </div>
+            <div id="uploadStatus"></div>
+        </div>
+        
+        <!-- Step 2: Object Detection -->
+        <div class="step hidden" id="detectionStep">
+            <h3>🔍 Step 2: AI Object Detection</h3>
+            <div class="loading" id="detectionLoading">
+                <div class="spinner"></div>
+                <p>AI is detecting objects in your image...</p>
+            </div>
+            <div id="detectionResults" class="hidden">
+                <p id="detectionMessage"></p>
+                <div id="objectsGrid" class="objects-grid"></div>
+            </div>
+        </div>
+        
+        <!-- Step 3: Select Object -->
+        <div class="step hidden" id="selectionStep">
+            <h3>🎯 Step 3: Select Object to Replace</h3>
+            <p>Click on the object you want to replace with furniture:</p>
+            <div id="selectedObjectInfo"></div>
+        </div>
+        
+        <!-- Step 4: Choose Furniture -->
+        <div class="step hidden" id="furnitureStep">
+            <h3>🪑 Step 4: Choose Replacement Furniture</h3>
+            <p>Select the furniture you want to use as replacement:</p>
+            <div id="furnitureGrid" class="furniture-grid"></div>
+        </div>
+        
+        <!-- Step 5: Replace Object -->
+        <div class="step hidden" id="replaceStep">
+            <h3>✨ Step 5: Replace Object</h3>
+            <div id="replaceInfo"></div>
+            <button class="btn" id="replaceBtn">🔄 Replace Object</button>
+            <div class="loading hidden" id="replaceLoading">
+                <div class="spinner"></div>
+                <p>Replacing object with furniture...</p>
+            </div>
+        </div>
+        
+        <!-- Step 6: View Result -->
+        <div class="step hidden" id="resultStep">
+            <h3>🎉 Step 6: View Result</h3>
+            <div id="resultContainer"></div>
+            <button class="btn" id="viewARBtn" onclick="viewInAR()">📱 View in AR</button>
+        </div>
+    </div>
+    
+    <!-- QR Code Modal -->
+    <div id="qrModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <span class="close" onclick="closeQRModal()">&times;</span>
+            <h3>📱 Scan QR Code for AR Viewing</h3>
+            <div id="qrCodeContainer"></div>
+            <p><strong>Instructions:</strong></p>
+            <ul>
+                <li>📱 <strong>Android:</strong> Use your camera app or Google Lens</li>
+                <li>🍎 <strong>iPhone:</strong> Use your camera app or Safari</li>
+                <li>📶 <strong>Make sure you're on the same Wi-Fi network</strong></li>
+            </ul>
+            <button class="btn" onclick="closeQRModal()">Close</button>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+    <script>
+        let uploadedImageFile = null;
+        let detectedObjects = [];
+        let selectedObject = null;
+        let selectedFurniture = null;
+        let furnitureInventory = [];
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            loadFurnitureInventory();
+            setupEventListeners();
+        });
+
+        function setupEventListeners() {
+            const uploadArea = document.getElementById('uploadArea');
+            const imageInput = document.getElementById('imageInput');
+            const replaceBtn = document.getElementById('replaceBtn');
+            const viewARBtn = document.getElementById('viewARBtn');
+
+            uploadArea.addEventListener('click', () => imageInput.click());
+            uploadArea.addEventListener('dragover', handleDragOver);
+            uploadArea.addEventListener('drop', handleDrop);
+            imageInput.addEventListener('change', handleImageSelect);
+            replaceBtn.addEventListener('click', replaceObject);
+            viewARBtn.addEventListener('click', viewInAR);
+        }
+
+        function handleDragOver(e) {
+            e.preventDefault();
+            e.currentTarget.classList.add('dragover');
+        }
+
+        function handleDrop(e) {
+            e.preventDefault();
+            e.currentTarget.classList.remove('dragover');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                handleImageFile(files[0]);
+            }
+        }
+
+        function handleImageSelect(e) {
+            if (e.target.files.length > 0) {
+                handleImageFile(e.target.files[0]);
+            }
+        }
+
+        function handleImageFile(file) {
+            if (!file.type.startsWith('image/')) {
+                alert('Please select an image file');
+                return;
+            }
+
+            uploadedImageFile = file;
+            
+            // Create preview image
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                document.getElementById('uploadStatus').innerHTML = `
+                    <p>✅ Image uploaded: ${file.name}</p>
+                    <img src="${e.target.result}" class="uploaded-image-preview" alt="Uploaded Image">
+                    <button class="btn" onclick="detectObjects()">🔍 Detect Objects</button>
+                `;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        async function detectObjects() {
+            console.log('detectObjects called');
+            if (!uploadedImageFile) {
+                console.log('No file uploaded');
+                return;
+            }
+
+            console.log('Uploaded file:', uploadedImageFile.name);
+            showStep('detectionStep');
+            document.getElementById('detectionLoading').classList.remove('hidden');
+            document.getElementById('detectionResults').classList.add('hidden');
+
+            const formData = new FormData();
+            formData.append('file', uploadedImageFile);
+
+            console.log('Sending request to backend...');
+            try {
+                const response = await fetch('http://localhost:8000/detect-objects', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                console.log('Response status:', response.status);
+                const result = await response.json();
+                console.log('Response data:', result);
+
+                if (response.ok) {
+                    detectedObjects = result.objects;
+                    console.log('About to call displayDetectedObjects...');
+                    displayDetectedObjects(result);
+                    console.log('About to call showStep...');
+                    showStep('detectionStep'); // Show the detection step where objects are displayed
+                    console.log('Both functions called successfully');
+                } else {
+                    alert('Error: ' + result.detail);
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Error detecting objects: ' + error.message);
+            }
+        }
+
+        function displayDetectedObjects(result) {
+            console.log('displayDetectedObjects called with:', result);
+            document.getElementById('detectionLoading').classList.add('hidden');
+            document.getElementById('detectionResults').classList.remove('hidden');
+            document.getElementById('detectionMessage').textContent = result.message;
+
+            const objectsGrid = document.getElementById('objectsGrid');
+            objectsGrid.innerHTML = '';
+
+            console.log('Found objects:', result.objects.length);
+            result.objects.forEach((obj, index) => {
+                console.log(`Object ${index}:`, obj);
+                const card = document.createElement('div');
+                card.className = 'object-card';
+                card.onclick = () => selectObject(obj);
+                card.innerHTML = `
+                    ${obj.preview ? `<img src="${obj.preview}" class="object-preview" alt="${obj.name}">` : ''}
+                    <h4>${obj.name}</h4>
+                    <p>Area: ${Math.round(obj.area)} pixels</p>
+                `;
+                objectsGrid.appendChild(card);
+            });
+            
+            console.log('Objects grid updated, showing selection step...');
+        }
+
+        function selectObject(obj) {
+            console.log('selectObject called with:', obj);
+            selectedObject = obj;
+            
+            // Update UI
+            document.querySelectorAll('.object-card').forEach(card => {
+                card.classList.remove('selected');
+            });
+            event.currentTarget.classList.add('selected');
+
+            document.getElementById('selectedObjectInfo').innerHTML = `
+                <div class="object-card selected">
+                    <h4>✅ Selected: ${obj.name}</h4>
+                    <p>Area: ${Math.round(obj.area)} pixels</p>
+                </div>
+                <button class="btn" onclick="showFurnitureSelection()">Next: Choose Furniture</button>
+            `;
+            
+            // Show Step 3 (Selection Step)
+            console.log('Showing selection step...');
+            showStep('selectionStep');
+        }
+
+        function showFurnitureSelection() {
+            console.log('showFurnitureSelection called, selectedObject:', selectedObject);
+            if (!selectedObject) {
+                console.log('No object selected, returning');
+                return;
+            }
+            
+            console.log('Showing furniture step...');
+            showStep('furnitureStep');
+            displayFurnitureOptions();
+        }
+
+        function displayFurnitureOptions() {
+            const furnitureGrid = document.getElementById('furnitureGrid');
+            furnitureGrid.innerHTML = '';
+
+            furnitureInventory.forEach(furniture => {
+                const card = document.createElement('div');
+                card.className = 'furniture-card';
+                card.onclick = () => selectFurniture(furniture);
+                card.innerHTML = `
+                    <img src="${furniture.thumbnail}" class="furniture-thumbnail" alt="${furniture.name}">
+                    <h4>${furniture.name}</h4>
+                    <p>$${furniture.price}</p>
+                `;
+                furnitureGrid.appendChild(card);
+            });
+        }
+
+        function selectFurniture(furniture) {
+            selectedFurniture = furniture;
+            
+            // Update UI
+            document.querySelectorAll('.furniture-card').forEach(card => {
+                card.classList.remove('selected');
+            });
+            event.currentTarget.classList.add('selected');
+
+            showStep('replaceStep');
+            document.getElementById('replaceInfo').innerHTML = `
+                <div style="display: flex; gap: 20px; align-items: center; margin: 20px 0;">
+                    <div>
+                        <h4>Replace:</h4>
+                        <p>${selectedObject.name}</p>
+                    </div>
+                    <div>➡️</div>
+                    <div>
+                        <h4>With:</h4>
+                        <p>${selectedFurniture.name} ($${selectedFurniture.price})</p>
+                    </div>
+                </div>
+            `;
+        }
+
+        async function replaceObject() {
+            if (!selectedObject || !selectedFurniture) return;
+
+            document.getElementById('replaceLoading').classList.remove('hidden');
+            document.getElementById('replaceBtn').disabled = true;
+
+            const data = {
+                image_filename: uploadedImageFile.name,
+                object_id: selectedObject.id,
+                furniture_name: selectedFurniture.filename // Use filename field (e.g., "black_sofa")
+            };
+
+            try {
+                const response = await fetch('http://localhost:8000/replace-object', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(data)
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    showResult(result);
+                    showStep('resultStep');
+                } else {
+                    alert('Error: ' + result.detail);
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Error replacing object: ' + error.message);
+            } finally {
+                document.getElementById('replaceLoading').classList.add('hidden');
+                document.getElementById('replaceBtn').disabled = false;
+            }
+        }
+
+        function showResult(result) {
+            console.log('showResult called with:', result);
+            document.getElementById('resultContainer').innerHTML = `
+                <p>${result.message}</p>
+                <img src="data:image/png;base64,${result.result_image}" class="result-image" alt="Result">
+            `;
+        }
+
+        function viewInAR() {
+            if (!selectedFurniture) {
+                alert('No furniture selected for AR viewing');
+                return;
+            }
+            
+            // Generate QR code for AR viewing
+            generateARQRCode();
+        }
+        
+        async function generateARQRCode() {
+            if (!selectedFurniture) return;
+            
+            try {
+                // Get local IP address for mobile access
+                const localIP = await getLocalIP();
+                const arModelUrl = `http://${localIP}:3000/ar-viewer.html?model=${selectedFurniture.filename}`;
+                
+                console.log('Generating QR code for:', arModelUrl);
+                
+                // Generate QR code
+                const qrCodeDiv = document.getElementById('qrCodeContainer');
+                qrCodeDiv.innerHTML = '<p>Generating QR code...</p>';
+                
+                QRCode.toCanvas(qrCodeDiv, arModelUrl, {
+                    width: 200,
+                    height: 200,
+                    colorDark: '#000000',
+                    colorLight: '#ffffff'
+                }, function (error) {
+                    if (error) {
+                        console.error('QR Code generation error:', error);
+                        qrCodeDiv.innerHTML = '<p>Error generating QR code</p>';
+                        return;
+                    }
+                    
+                    console.log('QR code generated successfully');
+                    // Show QR modal
+                    document.getElementById('qrModal').style.display = 'block';
+                });
+                
+            } catch (error) {
+                console.error('Error generating QR code:', error);
+                alert('Error generating QR code: ' + error.message);
+            }
+        }
+        
+        function getLocalIP() {
+            return new Promise((resolve) => {
+                const pc = new RTCPeerConnection({
+                    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+                });
+                
+                pc.onicecandidate = (event) => {
+                    if (event.candidate) {
+                        const candidate = event.candidate.candidate;
+                        const ipMatch = candidate.match(/([0-9]{1,3}(\.[0-9]{1,3}){3}|[a-f0-9]{1,4}(:[a-f0-9]{1,4}){7})/);
+                        if (ipMatch) {
+                            const ip = ipMatch[1];
+                            if (ip.startsWith('192.168.') || ip.startsWith('10.') || ip.startsWith('172.')) {
+                                pc.close();
+                                resolve(ip);
+                            }
+                        }
+                    }
+                };
+                
+                pc.createDataChannel('');
+                pc.createOffer().then(offer => pc.setLocalDescription(offer));
+                
+                // Fallback to localhost if no local IP found
+                setTimeout(() => {
+                    pc.close();
+                    resolve('127.0.0.1');
+                }, 2000);
+            });
+        }
+        
+        function closeQRModal() {
+            document.getElementById('qrModal').style.display = 'none';
+        }
+
+        function showStep(stepId) {
+            console.log('showStep called with:', stepId);
+            const steps = ['detectionStep', 'selectionStep', 'furnitureStep', 'replaceStep', 'resultStep'];
+            steps.forEach(step => {
+                document.getElementById(step).classList.add('hidden');
+            });
+            const targetElement = document.getElementById(stepId);
+            if (targetElement) {
+                targetElement.classList.remove('hidden');
+                console.log('Successfully showed step:', stepId);
+            } else {
+                console.error('Could not find element with ID:', stepId);
+            }
+        }
+
+        async function loadFurnitureInventory() {
+            try {
+                const response = await fetch('http://localhost:8000/get-initial-furniture');
+                const data = await response.json();
+                furnitureInventory = data.inventory;
+            } catch (error) {
+                console.error('Error loading furniture inventory:', error);
+            }
+        }
+    </script>
+</body>
+</html>

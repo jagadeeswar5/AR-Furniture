@@ -1,0 +1,691 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.0/fabric.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.1/build/qrcode.min.js"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Intelligent Interior Design App</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            margin: 0;
+            padding: 0;
+        }
+        #chatbox {
+            width: 60%;
+            height: 300px;
+            overflow-y: scroll;
+            border: 1px solid #ccc;
+            padding: 10px;
+            margin: 10px auto;
+            text-align: left;
+            background-color: #f9f9f9;
+        }
+        #inventory-container {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        .thumbnail {
+            width: 120px;
+            height: 120px;
+            object-fit: cover;
+            border-radius: 5px;
+            border: 1px solid #ddd;
+            cursor: pointer;
+        }
+        #ar-viewer {
+            display: none;
+            margin-top: 20px;
+        }
+        model-viewer {
+            width: 100%;
+            height: 500px;
+        }
+        #canvas-container {
+            position: relative;
+            width: 700px;
+            height: 500px;
+            margin: 20px auto;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            border: 2px dashed gray;
+            background-color: #f0f0f0;
+            cursor: pointer;
+        }
+        #main-canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+            background: white;
+            border: 2px solid black;
+        }
+        #toolbar {
+            position: absolute;
+            top: 10px;
+            right: -70px;
+            display: flex;
+            flex-direction: column;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px;
+            border-radius: 8px;
+        }
+        #toolbar button {
+            background: white;
+            border: none;
+            padding: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            border-radius: 5px;
+            margin-bottom: 5px;
+        }
+        #toolbar button:hover {
+            background: lightgray;
+        }
+        #inpainted-image-section {
+            margin-top: 20px;
+            position: relative;
+        }
+        #inpaintedImage {
+            max-width: 90%;
+            height: auto;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+        #controls {
+            margin-top: 10px;
+        }
+        #suggested-furniture-section {
+            margin-top: 20px;
+        }
+        #ar-button {
+            margin-top: 10px;
+            padding: 10px 20px;
+            background-color: #4285f4;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        #ar-button:hover {
+            background-color: #3367d6;
+        }
+        /* QR Code Modal Styles */
+        #qr-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.8);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+        #qr-container {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+        }
+        #qr-code {
+            margin: 20px auto;
+        }
+        #close-qr {
+            margin-top: 15px;
+            padding: 8px 16px;
+            background-color: #4285f4;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+    </style>
+    <!-- Load model-viewer component -->
+    <script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"></script>
+</head>
+<body>
+    <h1>Intelligent Interior Design App</h1>
+    <div id="chatbox"></div>
+    <input type="text" id="userInput" placeholder="Type your message..." onkeypress="handleKeyPress(event)">
+    <button onclick="sendMessage()">Send</button>
+
+    <div id="image-upload-section">
+        <h2>Upload Room Image</h2>
+        <div id="canvas-container">
+            <canvas id="main-canvas"></canvas>
+            <input type="file" id="imageUpload" accept="image/*" style="display: none;" onchange="loadImageToCanvas(event)">
+            <!-- Floating Toolbar -->
+            <div id="toolbar">
+                <button onclick="enableBrushTool()">🖌 Brush</button>
+                <button onclick="enableRectangleSelection()">⬛ Rectangle</button>
+                <button onclick="enableEraser()">🩹 Eraser</button>
+                <button onclick="undoLastAction()">↩️ Undo</button>
+                <button onclick="confirmMask()">✅ Confirm Mask</button>
+                <button onclick="clearMask()">❌ Clear Mask</button>
+            </div>
+        </div>
+    </div>
+
+    <h2>Furniture Inventory</h2>
+    <div id="inventory-container"></div>
+
+    <!-- Suggested Furniture Section -->
+    <div id="suggested-furniture-section" style="display: none;">
+        <h2>Best Matched Furniture</h2>
+        <img id="suggestedFurnitureImage" src="" alt="Suggested Furniture">
+        <p id="suggestedFurnitureName"></p>
+        <p id="suggestedFurniturePrice"></p>
+        <p id="suggestedFurnitureDescription"></p>
+        <button onclick="handleUserResponse('yes')">Yes</button>
+        <button onclick="handleUserResponse('no')">No</button>
+    </div>
+
+    <div id="segmented-image-section" style="display: none;">
+        <h2>Segmented Image</h2>
+        <img id="segmentedImage" src="" alt="Segmented Image">
+    </div>    
+
+    <div id="inpainted-image-section" style="display: none;">
+        <h2>Inpainted Image</h2>
+        <img id="inpaintedImage" src="" alt="Inpainted Image">
+        <div id="controls">
+            <label for="opacity">Opacity:</label>
+            <input type="range" id="opacity" min="0" max="1" step="0.1" value="1" oninput="updateOpacity()">
+            <button onclick="moveSofa(-10, 0)">←</button>
+            <button onclick="moveSofa(10, 0)">→</button>
+            <button onclick="moveSofa(0, -10)">↑</button>
+            <button onclick="moveSofa(0, 10)">↓</button>
+            <button onclick="resizeSofa(1.1)">+</button>
+            <button onclick="resizeSofa(0.9)">-</button>
+        </div>
+    </div>
+
+    <!-- AR Viewer Section -->
+    <div id="ar-viewer">
+        <h2>View in AR</h2>
+        <model-viewer
+            id="ar-model"
+            src=""
+            ar
+            ar-modes="scene-viewer quick-look"
+            camera-controls
+            auto-rotate
+            shadow-intensity="1"
+            environment-image="neutral"
+            exposure="1.5">
+        </model-viewer>
+        <button id="ar-button" onclick="showQRCode()">View in AR on Mobile</button>
+        <button id="ar-button" onclick="launchAR()" style="margin-top: 10px;">View in Web AR</button>
+    </div>
+
+    <!-- QR Code Modal -->
+    <div id="qr-modal">
+        <div id="qr-container">
+            <h3>Scan this QR code with your Android device</h3>
+            <div id="qr-code"></div>
+            <p>Point your camera at the QR code to view in AR</p>
+            <button id="close-qr" onclick="closeQRCode()">Close</button>
+        </div>
+    </div>
+
+    <script>
+        const backendUrl = "http://127.0.0.1:8000";
+        let fabricCanvas;
+        let selectedMaskBase64 = "";
+        let selectedFurniture = "";
+        let sortedSofas = [];
+
+        // Handles image upload when clicking the canvas
+        document.getElementById("main-canvas").addEventListener("click", function () {
+            document.getElementById("imageUpload").click();
+        });
+
+        // Loads the image into the canvas and sends it to the backend
+        async function loadImageToCanvas(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = async function (e) {
+                const imgObj = new Image();
+                imgObj.src = e.target.result;
+                imgObj.onload = function () {
+                    initializeCanvas(imgObj);
+                };
+
+                // Send the image to the backend
+                let formData = new FormData();
+                formData.append("file", file);
+
+                try {
+                    const response = await fetch(`${backendUrl}/upload/`, {
+                        method: "POST",
+                        body: formData,
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! Status: ${response.status}`);
+                    }
+
+                    const result = await response.json();
+                    console.log(" Backend Response:", result);
+
+                    //  Store sorted sofas and sofa_details globally
+                    window.sortedSofas = result.sorted_sofas;  //  Store globally
+                    window.sofa_details = result.sofa_details;  //  Store sofa_details globally
+
+                    // Display suggested furniture
+                    if (result.suggested_furniture) {
+                        document.getElementById("suggestedFurnitureName").innerText = `Best Match: ${result.suggested_furniture.name}`;
+                        document.getElementById("suggestedFurnitureImage").src = result.suggested_furniture.thumbnail;
+                        document.getElementById("suggestedFurniturePrice").innerText = `Price: $${result.suggested_furniture.price}`;
+                        document.getElementById("suggestedFurnitureDescription").innerText = `Description: ${result.suggested_furniture.description}`;
+                        document.getElementById("suggested-furniture-section").style.display = "block";
+
+                        addChatbotMessage(`We recommend ${result.suggested_furniture.name}. ${result.suggested_furniture.reason}`);
+                        addChatbotMessage("Is this okay? (Click 'Yes' or 'No')");
+                    } else {
+                        addChatbotMessage(" No suitable furniture found.");
+                    }
+                } catch (error) {
+                    console.error(" Upload failed:", error);
+                    alert(" Image upload failed. Check the console for details.");
+                }
+            };
+            reader.readAsDataURL(file);
+        }
+
+        // Initializes Fabric.js canvas with uploaded image
+        function initializeCanvas(imageObj) {
+            const canvasElement = document.getElementById("main-canvas");
+
+            // Create Fabric.js canvas if not initialized
+            if (!fabricCanvas) {
+                fabricCanvas = new fabric.Canvas("main-canvas", {
+                    isDrawingMode: false, // Start in non-drawing mode
+                    backgroundColor: "white",
+                });
+            } else {
+                fabricCanvas.clear(); // Clear previous drawings
+            }
+
+            // Set the canvas size dynamically (increase width and height if needed)
+            let maxCanvasWidth = 800;  // Increase this value for a larger display
+            let maxCanvasHeight = 600; // Increase this value for a larger display
+
+            fabricCanvas.setWidth(maxCanvasWidth);
+            fabricCanvas.setHeight(maxCanvasHeight);
+
+            // Scale image to fit the canvas while maintaining aspect ratio
+            let scaleFactor = Math.min(
+                maxCanvasWidth / imageObj.width,
+                maxCanvasHeight / imageObj.height
+            );
+
+            let scaledWidth = imageObj.width * scaleFactor;
+            let scaledHeight = imageObj.height * scaleFactor;
+
+            const fabricImage = new fabric.Image(imageObj, {
+                left: (maxCanvasWidth - scaledWidth) / 2, // Center the image
+                top: (maxCanvasHeight - scaledHeight) / 2, // Center the image
+                scaleX: scaleFactor,
+                scaleY: scaleFactor,
+                selectable: false, // Disable moving/resizing the image
+                evented: false, // Disable interaction with the image
+            });
+
+            fabricCanvas.add(fabricImage);
+            fabricCanvas.renderAll();
+
+            // Show toolbar after image is loaded
+            document.getElementById("toolbar").style.display = "flex";
+        }
+
+        // Enable Freehand Brush
+        function enableBrushTool() {
+            if (!fabricCanvas) return;
+            fabricCanvas.isDrawingMode = true; // Enable drawing mode
+            fabricCanvas.freeDrawingBrush.width = 10; // Set brush size
+            fabricCanvas.freeDrawingBrush.color = "red"; // Set brush color
+        }
+
+        // Enable Rectangle Selection
+        function enableRectangleSelection() {
+            if (!fabricCanvas) return;
+            fabricCanvas.isDrawingMode = false; // Disable drawing mode
+            let rect, isDrawing = false;
+
+            fabricCanvas.on('mouse:down', function (o) {
+                const pointer = fabricCanvas.getPointer(o.e);
+                isDrawing = true;
+                rect = new fabric.Rect({
+                    left: pointer.x,
+                    top: pointer.y,
+                    width: 0,
+                    height: 0,
+                    fill: "rgba(255, 0, 0, 0.5)", // Semi-transparent red fill
+                    stroke: "red", // Red border
+                    strokeWidth: 2,
+                    selectable: false, // Disable moving/resizing the rectangle
+                });
+                fabricCanvas.add(rect);
+            });
+
+            fabricCanvas.on('mouse:move', function (o) {
+                if (!isDrawing || !rect) return;
+                const pointer = fabricCanvas.getPointer(o.e);
+                rect.set({
+                    width: pointer.x - rect.left,
+                    height: pointer.y - rect.top,
+                });
+                fabricCanvas.renderAll();
+            });
+
+            fabricCanvas.on('mouse:up', function () {
+                isDrawing = false;
+            });
+        }
+
+        // Enable Eraser
+        function enableEraser() {
+            if (!fabricCanvas) return;
+            fabricCanvas.isDrawingMode = true; // Enable drawing mode
+            fabricCanvas.freeDrawingBrush.width = 20; // Set eraser size
+            fabricCanvas.freeDrawingBrush.color = "white"; // Acts as eraser
+        }
+
+        // Clear Mask
+        function clearMask() {
+            if (fabricCanvas) {
+                // Clear all objects except the background image
+                const backgroundImage = fabricCanvas.getObjects().find(obj => obj.type === "image");
+                fabricCanvas.clear();
+                if (backgroundImage) {
+                    fabricCanvas.add(backgroundImage); // Re-add the background image
+                }
+            }
+        }
+
+        // Handle user response to suggested furniture
+        function handleUserResponse(response) {
+            console.log("User response:", response);
+
+            if (response === "yes") {
+                console.log("User accepted the suggested sofa.");
+
+                document.getElementById("suggested-furniture-section").style.display = "block";
+
+                if (selectedMaskBase64) {
+                    console.log("Mask already drawn. Proceeding to inpainting...");
+                    inpaintImage(); // If mask exists, proceed to inpainting
+                } else {
+                    console.log("No mask drawn. Asking user to draw one...");
+                    addChatbotMessage("Please draw a mask over the furniture area you want to replace and confirm it.");
+                    enableRectangleSelection(); // Allow user to draw mask
+                }
+
+            } else {
+                console.log("User rejected the suggestion. Fetching next best furniture...");
+                getNextBestFurniture(); // Fetch the next best sofa
+            }
+        }
+
+        // Fetch the next best sofa
+        function getNextBestFurniture() {
+            console.log("Fetching next best furniture...");
+
+            if (window.sortedSofas && window.sortedSofas.length > 1) {
+                // Remove the first sofa (already rejected)
+                window.sortedSofas.shift();
+
+                // Get the next best sofa
+                const nextFurniture = window.sortedSofas[0][0];
+                const sofaName = nextFurniture.replace(".png", "");
+                const sofaInfo = window.sofa_details[sofaName];  // Use sofa_details from the backend
+
+                console.log("Next best sofa:", sofaName);
+
+                // Update UI
+                document.getElementById("suggestedFurnitureName").innerText = `Best Match: ${sofaName}`;
+                document.getElementById("suggestedFurnitureImage").src = `http://127.0.0.1:8000/thumbnails/${nextFurniture}`;
+                document.getElementById("suggestedFurniturePrice").innerText = `Price: $${sofaInfo.price}`;
+                document.getElementById("suggestedFurnitureDescription").innerText = `Description: ${sofaInfo.description}`;
+                document.getElementById("suggested-furniture-section").style.display = "block";
+
+                addChatbotMessage(`How about this one: ${sofaName}?`);
+                addChatbotMessage("Is this okay? (Click 'Yes' or 'No')");
+            } else {
+                console.log("No more sofas available.");
+                addChatbotMessage("No more suggested sofas available.");
+            }
+        }
+
+        async function confirmMask() {
+            console.log("Confirm Mask Clicked! Extracting mask...");
+
+            // Get the drawn mask from the canvas
+            const maskDataURL = fabricCanvas.toDataURL("image/png");
+
+            addChatbotMessage("Processing segmentation...");
+
+            try {
+                const response = await fetch(`${backendUrl}/segment/`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ mask_base64: maskDataURL }) // Send Base64 mask
+                });
+
+                const result = await response.json();
+                console.log("Segmentation response:", result);
+
+                if (result.mask) {
+                    addChatbotMessage("Segmentation successful! Now displaying the segmented image...");
+
+                    // Display segmented image
+                    document.getElementById("segmentedImage").src = `data:image/png;base64,${result.segmented_image}`;
+                    document.getElementById("segmented-image-section").style.display = "block";
+
+                    // Proceed with inpainting automatically
+                    setTimeout(() => {
+                        addChatbotMessage("Proceeding to inpainting...");
+                        inpaintImage();
+                    }, 1500);
+                } else {
+                    addChatbotMessage("Segmentation failed. Please try again.");
+                }
+            } catch (error) {
+                console.error("Error during segmentation:", error);
+                addChatbotMessage("Segmentation error. Try again.");
+            }
+        }
+
+        async function inpaintImage() {
+            console.log(" Sending image for inpainting...");
+
+            if (!window.sortedSofas || window.sortedSofas.length === 0) {
+                console.error(" No furniture suggestion found!");
+                addChatbotMessage(" No furniture suggestion found. Please try again.");
+                return;
+            }
+
+            let suggestedFurniture = window.sortedSofas[0][0].replace(".png", "");  //  Using global sortedSofas
+            console.log(" Suggested Furniture:", suggestedFurniture);
+
+            let formData = new FormData();
+            formData.append("suggested_furniture", suggestedFurniture);
+
+            try {
+                const response = await fetch(`${backendUrl}/inpainting-image`, {
+                    method: "POST",
+                    body: formData,
+                });
+
+                console.log("📡 Inpainting API called...");
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error(" Inpainting API failed:", errorText);
+                    addChatbotMessage(" Inpainting failed. Check console for details.");
+                    return;
+                }
+
+                const data = await response.json();
+                console.log("Inpainting response received:", data);
+
+                if (data.image) {
+                    document.getElementById("inpaintedImage").src = `data:image/png;base64,${data.image}`;
+                    document.getElementById("inpainted-image-section").style.display = "block";
+                    addChatbotMessage(" Inpainting completed!");
+                    
+
+                    // Update AR view with the new GLB model
+                    const arModel = document.getElementById("ar-model");
+                    arModel.src = `http://127.0.0.1:8000/furniture/${suggestedFurniture}.glb`;
+                    document.getElementById("ar-viewer").style.display = "block";
+                } else {
+                    addChatbotMessage(" Inpainting failed. Try again.");
+                }
+            } catch (error) {
+                console.error(" Error during inpainting:", error);
+                addChatbotMessage("Something went wrong, please try again.");
+            }
+        }
+
+        // Function to show QR code for AR viewing
+        function showQRCode() {
+            const modelViewer = document.querySelector('model-viewer');
+            if (!modelViewer || !modelViewer.src) {
+                addChatbotMessage("No furniture selected for AR viewing.");
+                return;
+            }
+
+            // Generate QR code with the model URL
+            const qrCodeElement = document.getElementById('qr-code');
+            qrCodeElement.innerHTML = ''; // Clear previous QR code
+            
+            // Create a URL that will open directly in Scene Viewer on Android
+            const modelUrl = encodeURIComponent(modelViewer.src);
+            const intentUrl = `https://arvr.google.com/scene-viewer/1.0?file=${modelUrl}&mode=ar_only`;
+            
+            QRCode.toCanvas(qrCodeElement, intentUrl, { width: 200 }, function(error) {
+                if (error) {
+                    console.error("Error generating QR code:", error);
+                    addChatbotMessage("Error generating QR code. Please try again.");
+                } else {
+                    document.getElementById('qr-modal').style.display = 'flex';
+                }
+            });
+        }
+
+        // Function to close QR code modal
+        function closeQRCode() {
+            document.getElementById('qr-modal').style.display = 'none';
+        }
+
+        // Function to launch AR experience
+        function launchAR() {
+            const modelViewer = document.querySelector('model-viewer');
+            if (modelViewer) {
+                modelViewer.activateAR();
+            } else {
+                addChatbotMessage("AR is not available for this furniture.");
+            }
+        }
+
+        // Function to send user input to the chatbot backend
+        async function sendMessage() {
+            const userInput = document.getElementById("userInput").value;
+            if (!userInput) return;
+
+            // Display user message in the chatbox
+            const chatbox = document.getElementById("chatbox");
+            const userMessage = document.createElement("p");
+            userMessage.innerHTML = `<strong>You:</strong> ${userInput}`;
+            chatbox.appendChild(userMessage);
+            chatbox.scrollTop = chatbox.scrollHeight;
+
+            // Clear the input field
+            document.getElementById("userInput").value = "";
+
+            try {
+                // Send user input to the backend
+                const response = await fetch(`${backendUrl}/chat`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ message: userInput })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! Status: ${response.status}`);
+                }
+
+                const result = await response.json();
+
+                // Display chatbot response
+                addChatbotMessage(result.message);
+
+                // If chatbot suggests furniture, display it
+                if (result.inventory) {
+                    displayFurnitureInventory(result.inventory);
+                    addChatbotMessage("Please upload your room image in the section below to get the recommended furniture.");
+                }
+
+            } catch (error) {
+                console.error("Error sending message:", error);
+                addChatbotMessage("Sorry, something went wrong. Please try again.");
+            }
+        }
+
+        // Handle Enter key press in chat input
+        function handleKeyPress(event) {
+            if (event.key === "Enter") {
+                sendMessage();
+            }
+        }
+
+        // Function to display furniture inventory
+        function displayFurnitureInventory(inventory) {
+            const inventoryContainer = document.getElementById("inventory-container");
+            inventoryContainer.innerHTML = ""; // Clear previous inventory
+
+            inventory.forEach(item => {
+                if (item.thumbnail && (item.thumbnail.endsWith(".png"))){
+                    const imgElement = document.createElement("img");
+                    imgElement.src = item.thumbnail;
+                    imgElement.alt = item.name;
+                    imgElement.classList.add("thumbnail");
+
+                    // Select furniture on click
+                    imgElement.onclick = () => {
+                        selectedFurniture = item.name;
+                        addChatbotMessage(`You selected: ${item.name}`);
+                        addChatbotMessage(`Chatbot: ${item.name} costs $${item.price}. ${item.description}`);
+                    };
+
+                    inventoryContainer.appendChild(imgElement);
+                }
+            });
+        }
+
+        // Function to add chatbot messages to the chatbox
+        function addChatbotMessage(message) {
+            const chatbox = document.getElementById("chatbox");
+            const newMessage = document.createElement("p");
+            newMessage.innerHTML = `<strong>Chatbot:</strong> ${message}`;
+            chatbox.appendChild(newMessage);
+            chatbox.scrollTop = chatbox.scrollHeight;
+        }
+
+        // Initialize Chatbot
+        addChatbotMessage("Hello! How can I help you today?");
+    </script>
+</body>
+</html>

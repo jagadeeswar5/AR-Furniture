@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AR Furniture App - Development Project</title>
+    
+    <!-- Custom Styles -->
+    <link rel="stylesheet" href="styles.css">
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏠</text></svg>">
+    
+    <style>
+        .hero {
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.4) 0%, rgba(118, 75, 162, 0.4) 100%), 
+                        url('https://www.shutterstock.com/shutterstock/videos/1097727179/thumb/1.jpg?ip=x480');
+            background-size: cover;
+            background-attachment: fixed;
+            background-position: center;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            color: white;
+            padding: 0 var(--spacing-6);
+            position: relative;
+        }
+
+        .hero h1 {
+            font-size: clamp(2rem, 4vw, 3rem);
+            font-weight: 700;
+            margin-bottom: var(--spacing-6);
+        }
+
+        .hero p {
+            font-size: clamp(1rem, 2vw, 1.25rem);
+            margin-bottom: var(--spacing-8);
+            max-width: 600px;
+            line-height: 1.6;
+            opacity: 0.9;
+        }
+
+        .cta-button {
+            display: inline-flex;
+            align-items: center;
+            gap: var(--spacing-3);
+            background: white;
+            color: var(--primary-color);
+            padding: var(--spacing-4) var(--spacing-6);
+            font-size: var(--font-size-lg);
+            font-weight: 600;
+            text-decoration: none;
+            border-radius: var(--radius-xl);
+            transition: all var(--transition-normal);
+            box-shadow: var(--shadow-lg);
+        }
+
+        .cta-button:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-xl);
+        }
+
+        /* Floating decorative elements */
+        .floating-elements {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            pointer-events: none;
+        }
+
+        .floating-element {
+            position: absolute;
+            opacity: 0.5;
+            animation: float 6s ease-in-out infinite;
+            font-size: 2rem;
+        }
+
+        .floating-element:nth-child(1) {
+            top: 20%;
+            left: 10%;
+            animation-delay: 0s;
+        }
+
+        .floating-element:nth-child(2) {
+            top: 60%;
+            right: 15%;
+            animation-delay: 2s;
+        }
+
+        .floating-element:nth-child(3) {
+            bottom: 30%;
+            left: 20%;
+            animation-delay: 4s;
+        }
+
+        .floating-element:nth-child(4) {
+            top: 40%;
+            right: 30%;
+            animation-delay: 1s;
+        }
+
+        .floating-element:nth-child(5) {
+            bottom: 20%;
+            right: 10%;
+            animation-delay: 3s;
+        }
+
+        .floating-element:nth-child(6) {
+            top: 80%;
+            left: 50%;
+            animation-delay: 5s;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateY(0px) rotate(0deg); }
+            50% { transform: translateY(-20px) rotate(5deg); }
+        }
+
+        .features {
+            padding: var(--spacing-16) var(--spacing-6);
+            background: var(--gray-50);
+        }
+
+        .features-container {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+
+        .features h2 {
+            text-align: center;
+            font-size: var(--font-size-3xl);
+            font-weight: 700;
+            color: var(--gray-900);
+            margin-bottom: var(--spacing-12);
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: var(--spacing-6);
+        }
+
+        .feature {
+            background: white;
+            padding: var(--spacing-6);
+            border-radius: var(--radius-xl);
+            text-align: center;
+            box-shadow: var(--shadow-md);
+            border: 1px solid var(--gray-200);
+        }
+
+        .feature-icon {
+            font-size: 2.5rem;
+            margin-bottom: var(--spacing-4);
+        }
+
+        .feature h3 {
+            font-size: var(--font-size-xl);
+            font-weight: 600;
+            color: var(--gray-900);
+            margin-bottom: var(--spacing-3);
+        }
+
+        .feature p {
+            color: var(--gray-600);
+            line-height: 1.6;
+        }
+
+        .status {
+            background: var(--warning-color);
+            color: white;
+            padding: var(--spacing-4) var(--spacing-6);
+            text-align: center;
+            font-weight: 600;
+        }
+
+        .footer {
+            background: var(--gray-900);
+            color: white;
+            padding: var(--spacing-8) var(--spacing-6);
+            text-align: center;
+        }
+
+        .footer p {
+            color: var(--gray-400);
+            margin-bottom: var(--spacing-4);
+        }
+
+        .footer-links {
+            display: flex;
+            justify-content: center;
+            gap: var(--spacing-6);
+        }
+
+        .footer-links a {
+            color: var(--gray-400);
+            text-decoration: none;
+            transition: color var(--transition-fast);
+        }
+
+        .footer-links a:hover {
+            color: var(--primary-color);
+        }
+    </style>
+</head>
+<body>
+    <!-- Development Status Banner -->
+    <div class="status">
+        🚧 This is a development project - Features may not work perfectly yet
+    </div>
+
+    <!-- Hero Section -->
+    <section class="hero">
+        <!-- Floating decorative elements -->
+        <div class="floating-elements">
+            <div class="floating-element">🛋️</div>
+            <div class="floating-element">🪑</div>
+            <div class="floating-element">🛏️</div>
+            <div class="floating-element">📱</div>
+            <div class="floating-element">🎨</div>
+            <div class="floating-element">🤖</div>
+        </div>
+        
+        <div>
+            <h1>🏠 AR Furniture App</h1>
+            <p>A development project exploring AI-powered furniture placement using augmented reality and computer vision.</p>
+            <a href="index.html" class="cta-button">
+                <span>🚀 Try the App</span>
+                <span>→</span>
+            </a>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section class="features">
+        <div class="features-container">
+            <h2>🔧 Current Features</h2>
+            <div class="features-grid">
+                <div class="feature">
+                    <div class="feature-icon">📱</div>
+                    <h3>AR Visualization</h3>
+                    <p>View 3D furniture models in augmented reality using your phone's camera.</p>
+                </div>
+                <div class="feature">
+                    <div class="feature-icon">🤖</div>
+                    <h3>AI Chat Assistant</h3>
+                    <p>Chat with an AI assistant to get furniture recommendations and design advice.</p>
+                </div>
+                <div class="feature">
+                    <div class="feature-icon">🎨</div>
+                    <h3>Image Inpainting</h3>
+                    <p>Replace furniture in your room photos using AI-powered image editing.</p>
+                </div>
+                <div class="feature">
+                    <div class="feature-icon">📐</div>
+                    <h3>Room Analysis</h3>
+                    <p>Upload room photos to get personalized furniture suggestions based on your space.</p>
+                </div>
+                <div class="feature">
+                    <div class="feature-icon">📊</div>
+                    <h3>Cosine Similarity Ranking</h3>
+                    <p>Ranks inventory against your query using text embeddings to show the best-matching sofa.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div>
+            <h3>🏠 AR Furniture App</h3>
+            <p>Development project for exploring AI and AR in interior design</p>
+            <p style="color: var(--gray-300); font-size: var(--font-size-sm); margin-bottom: var(--spacing-4);">
+                Created by Jagadeeswar Kamireddy
+            </p>
+            <div class="footer-links">
+                <a href="index.html">Try the App</a>
+                <a href="#features">Features</a>
+            </div>
+            <p style="color: var(--gray-500); font-size: var(--font-size-sm); margin-top: var(--spacing-4);">
+                © 2025 Development Project
+            </p>
+        </div>
+    </footer>
+</body>
+</html>

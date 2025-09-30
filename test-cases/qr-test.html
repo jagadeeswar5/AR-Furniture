@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QR Code Test</title>
+    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #f0f2f5;
+            text-align: center;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+        .success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+            font-weight: bold;
+        }
+        .url-display {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: monospace;
+            margin: 20px 0;
+            word-break: break-all;
+            text-align: left;
+        }
+        #qr-code {
+            margin: 20px 0;
+        }
+        .instructions {
+            background: #e7f3ff;
+            border-left: 4px solid #007bff;
+            padding: 20px;
+            margin: 20px 0;
+            text-align: left;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 QR Code Generation Test</h1>
+        
+        <div class="success">
+            ✅ Testing QR code generation with fixed IP: 192.168.0.7
+        </div>
+        
+        <div class="instructions">
+            <h3>📱 Test URLs:</h3>
+            <p><strong>AR Viewer URL:</strong></p>
+            <div class="url-display" id="ar-viewer-url">
+                Loading...
+            </div>
+            
+            <p><strong>Google Scene Viewer URL:</strong></p>
+            <div class="url-display" id="scene-viewer-url">
+                Loading...
+            </div>
+        </div>
+        
+        <h3>📱 QR Code for AR Viewer:</h3>
+        <div id="qr-code"></div>
+        
+        <div class="instructions">
+            <h3>🔧 How to Test:</h3>
+            <ol>
+                <li><strong>Scan the QR code above</strong> with your phone's camera</li>
+                <li><strong>Or copy the AR Viewer URL</strong> and open it on your phone</li>
+                <li><strong>Make sure your phone is on the same Wi-Fi</strong> (192.168.0.x network)</li>
+                <li><strong>Click "View in AR"</strong> when the page loads</li>
+            </ol>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Test URLs with fixed IP
+            const localIP = '192.168.0.7';
+            const modelName = 'blue_sofa';
+            
+            // AR Viewer URL
+            const arViewerUrl = `http://${localIP}:3000/ar-viewer.html?model=${modelName}`;
+            document.getElementById('ar-viewer-url').textContent = arViewerUrl;
+            
+            // Google Scene Viewer URL
+            const modelUrl = `http://${localIP}:8000/furniture/${modelName}.glb`;
+            const sceneViewerUrl = `https://arvr.google.com/scene-viewer/1.0?file=${encodeURIComponent(modelUrl)}&mode=ar_only`;
+            document.getElementById('scene-viewer-url').textContent = sceneViewerUrl;
+            
+            // Generate QR code for AR Viewer
+            const qrCodeElement = document.getElementById('qr-code');
+            
+            QRCode.toCanvas(qrCodeElement, arViewerUrl, { 
+                width: 200,
+                margin: 2,
+                color: {
+                    dark: '#000000',
+                    light: '#FFFFFF'
+                },
+                errorCorrectionLevel: 'M'
+            }, function(error) {
+                if (error) {
+                    console.error("Error generating QR code:", error);
+                    qrCodeElement.innerHTML = `
+                        <div style="color: red; padding: 20px;">
+                            ❌ Error generating QR code: ${error.message}
+                        </div>
+                    `;
+                } else {
+                    console.log("✅ QR code generated successfully!");
+                    qrCodeElement.innerHTML += `
+                        <p style="color: green; margin-top: 10px;">
+                            ✅ QR code generated successfully!
+                        </p>
+                    `;
+                }
+            });
+        });
+    </script>
+</body>
+</html>

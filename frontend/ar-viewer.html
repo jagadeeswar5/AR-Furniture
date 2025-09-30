@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AR Furniture Viewer</title>
+    <script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            text-align: center;
+            max-width: 500px;
+            width: 100%;
+        }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 2rem;
+        }
+        
+        .furniture-info {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        
+        .furniture-name {
+            font-size: 1.5rem;
+            color: #333;
+            margin-bottom: 10px;
+        }
+        
+        .furniture-details {
+            color: #666;
+            margin-bottom: 20px;
+        }
+        
+        model-viewer {
+            width: 100%;
+            height: 400px;
+            border-radius: 10px;
+            background: #f0f0f0;
+        }
+        
+        .ar-instructions {
+            background: #e3f2fd;
+            border: 1px solid #2196f3;
+            border-radius: 10px;
+            padding: 20px;
+            margin: 20px 0;
+            text-align: left;
+        }
+        
+        .ar-instructions h3 {
+            color: #1976d2;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .ar-instructions ul {
+            list-style: none;
+            padding: 0;
+        }
+        
+        .ar-instructions li {
+            margin: 10px 0;
+            padding: 10px;
+            background: white;
+            border-radius: 5px;
+            border-left: 4px solid #2196f3;
+        }
+        
+        .back-button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 25px;
+            font-size: 1rem;
+            cursor: pointer;
+            margin-top: 20px;
+            transition: all 0.3s ease;
+        }
+        
+        .back-button:hover {
+            background: #5a6fd8;
+            transform: translateY(-2px);
+        }
+        
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 400px;
+            color: #666;
+        }
+        
+        .error {
+            color: #f44336;
+            background: #ffebee;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🪑 AR Furniture Viewer</h1>
+        
+        <div id="furniture-container">
+            <div class="loading">
+                <p>Loading furniture model...</p>
+            </div>
+        </div>
+        
+        <div class="ar-instructions">
+            <h3>📱 How to View in AR:</h3>
+            <ul>
+                <li><strong>Android:</strong> Tap the AR button below and use your camera app</li>
+                <li><strong>iPhone:</strong> Tap the AR button and use Safari's AR viewer</li>
+                <li><strong>Desktop:</strong> Use the 3D viewer below to rotate and zoom</li>
+                <li><strong>Tip:</strong> Point your camera at a flat surface like a table or floor</li>
+            </ul>
+        </div>
+        
+        <button class="back-button" onclick="goBack()">← Back to App</button>
+    </div>
+
+    <script>
+        // Get furniture model from URL parameters
+        const urlParams = new URLSearchParams(window.location.search);
+        const furnitureName = urlParams.get('model');
+        
+        if (!furnitureName) {
+            showError('No furniture model specified');
+        } else {
+            loadFurnitureModel(furnitureName);
+        }
+        
+        async function loadFurnitureModel(furnitureName) {
+            try {
+                // Get furniture details from backend
+                const response = await fetch(`http://${window.location.hostname}:8000/get-initial-furniture`);
+                const data = await response.json();
+                
+                // Find the furniture item
+                const furniture = data.inventory.find(item => item.filename === furnitureName);
+                
+                if (!furniture) {
+                    showError('Furniture model not found');
+                    return;
+                }
+                
+                // Create furniture info
+                const furnitureContainer = document.getElementById('furniture-container');
+                furnitureContainer.innerHTML = `
+                    <div class="furniture-info">
+                        <div class="furniture-name">${furniture.name}</div>
+                        <div class="furniture-details">
+                            <p><strong>Style:</strong> ${furniture.style}</p>
+                            <p><strong>Color:</strong> ${furniture.color}</p>
+                            <p><strong>Material:</strong> ${furniture.material}</p>
+                            <p><strong>Price:</strong> $${furniture.price}</p>
+                            <p><strong>Dimensions:</strong> ${furniture.dimensions}</p>
+                        </div>
+                    </div>
+                    
+                    <model-viewer
+                        src="http://${window.location.hostname}:8000/furniture/${furniture.filename}.glb"
+                        ios-src="http://${window.location.hostname}:8000/furniture/${furniture.filename}.glb"
+                        alt="${furniture.name}"
+                        ar
+                        auto-rotate
+                        camera-controls
+                        loading="lazy"
+                        style="width: 100%; height: 400px;">
+                        
+                        <div class="loading" slot="progress-bar">
+                            <div class="spinner"></div>
+                            <p>Loading 3D model...</p>
+                        </div>
+                        
+                        <button slot="ar-button" id="ar-button" style="
+                            background: #667eea;
+                            color: white;
+                            border: none;
+                            padding: 15px 30px;
+                            border-radius: 25px;
+                            font-size: 1rem;
+                            cursor: pointer;
+                            margin: 10px;
+                            transition: all 0.3s ease;
+                        ">
+                            📱 View in AR
+                        </button>
+                    </model-viewer>
+                `;
+                
+            } catch (error) {
+                console.error('Error loading furniture:', error);
+                showError('Failed to load furniture model');
+            }
+        }
+        
+        function showError(message) {
+            const container = document.getElementById('furniture-container');
+            container.innerHTML = `
+                <div class="error">
+                    <h3>❌ Error</h3>
+                    <p>${message}</p>
+                </div>
+            `;
+        }
+        
+        function goBack() {
+            // Go back to the main app
+            window.location.href = 'index.html';
+        }
+        
+        // Handle AR button click for better mobile experience
+        document.addEventListener('DOMContentLoaded', function() {
+            setTimeout(() => {
+                const arButton = document.getElementById('ar-button');
+                if (arButton) {
+                    arButton.addEventListener('click', function() {
+                        // Show additional instructions for mobile users
+                        if (/Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
+                            alert('📱 Mobile AR Instructions:\n\n1. Tap "View in AR" below\n2. Allow camera access\n3. Point camera at a flat surface\n4. Tap to place the furniture\n5. Move around to view from different angles');
+                        }
+                    });
+                }
+            }, 1000);
+        });
+    </script>
+</body>
+</html>

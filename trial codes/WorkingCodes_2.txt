@@ -1,0 +1,1038 @@
+main.py:
+
+import os
+import torch
+import numpy as np
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form
+from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from PIL import Image
+import uvicorn
+import torchvision.models as models
+import torchvision.transforms as transforms
+from sklearn.metrics.pairwise import cosine_similarity
+import openai
+import logging
+from dotenv import load_dotenv
+import cv2
+from io import BytesIO
+from base64 import b64encode, b64decode
+import base64
+from segment_anything import sam_model_registry, SamAutomaticMaskGenerator, SamPredictor
+
+# Load environment variables from .env file
+load_dotenv()
+
+# Initialize logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Initialize OpenAI Client
+client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))  # Use environment variable for API key
+
+# Initialize FastAPI
+app = FastAPI()
+
+# Enable CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allow all origins for development
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Define Directories
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+UPLOAD_FOLDER = os.path.join(BASE_DIR, "uploads")
+FURNITURE_FOLDER = os.path.join(BASE_DIR, "furniture_models/sofas")
+THUMBNAIL_FOLDER = os.path.join(FURNITURE_FOLDER, "thumbnails")
+
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+# Detect CUDA availability
+device = "cuda" if torch.cuda.is_available() else "cpu"
+print(f"Using device: {device}")
+
+# Load the SAM model
+SAM_CHECKPOINT_PATH = "models/sam_vit_h_4b8939.pth"  # Update the path if needed
+sam = sam_model_registry["vit_h"](checkpoint=SAM_CHECKPOINT_PATH)
+sam.to(device)
+mask_generator = SamAutomaticMaskGenerator(sam)
+predictor = SamPredictor(sam)
+
+# Global variables for storing images and masks
+GLOBAL_IMAGE = None
+GLOBAL_MASK = None
+
+# Load Pre-trained ResNet for Feature Extraction
+resnet = models.resnet50(weights='DEFAULT')  # Updated to use 'weights' instead of 'pretrained'
+resnet = torch.nn.Sequential(*list(resnet.children())[:-1])
+resnet.eval()
+resnet.to(device)
+
+# Image Preprocessing for ResNet
+preprocess = transforms.Compose([
+    transforms.Resize(256),
+    transforms.CenterCrop(224),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+])
+
+logger.info("Models Loaded Successfully ✅")
+
+# Sofa Details (Prices and Descriptions)
+sofa_details = {
+    "black_sofa": {
+        "name": "Black Sofa",
+        "price": 1000.00,
+        "description": "A sleek and modern black sofa, perfect for contemporary spaces."
+    },
+    "Black_sofa_set": {
+        "name": "Black Sofa Set",
+        "price": 1500.00,
+        "description": "A luxurious black sofa set, perfect for modern living rooms."
+    },
+    "blue_sofa": {
+        "name": "Blue Sofa",
+        "price": 1200.00,
+        "description": "A stylish blue sofa, ideal for adding a pop of color to your space."
+    },
+    "modern_sofa2": {
+        "name": "Modern Sofa 2",
+        "price": 1100.00,
+        "description": "A stylish and comfortable sofa, ideal for modern spaces."
+    }
+}
+
+# Extract Features from an Image
+def extract_features(image_path):
+    try:
+        logger.info(f"Extracting features from: {image_path}")
+        image = Image.open(image_path).convert("RGB")
+        image = preprocess(image).unsqueeze(0).to(device)
+        with torch.no_grad():
+            features = resnet(image)
+        return features.cpu().numpy().flatten()
+    except Exception as e:
+        logger.error(f"Error extracting features: {e}")
+        raise
+
+# Find the Most Suitable Sofa with Reasoning
+def find_most_suitable_sofa(room_features):
+    try:
+        logger.info("Finding the most suitable sofa...")
+        sofa_features = {}
+        for filename in os.listdir(THUMBNAIL_FOLDER):
+            if filename.endswith(".jpg"):
+                sofa_path = os.path.join(THUMBNAIL_FOLDER, filename)
+                logger.info(f"Processing thumbnail: {sofa_path}")
+
+                features = extract_features(sofa_path)
+                sofa_features[filename] = features
+
+        if not sofa_features:
+            logger.info("No sofa features found.")
+            return None, None, "No furniture available."
+
+        similarities = {sofa: cosine_similarity([room_features], [features])[0][0] for sofa, features in sofa_features.items()}
+        sorted_sofas = sorted(similarities.items(), key=lambda x: x[1], reverse=True)
+
+        most_suitable_sofa = sorted_sofas[0][0]
+        similarity_score = sorted_sofas[0][1]
+        reason = f"This sofa matches the room's style and color scheme with a similarity score of {similarity_score:.2f}."
+
+        logger.info(f"Most suitable sofa: {most_suitable_sofa}, Similarity score: {similarity_score}")
+        return most_suitable_sofa, similarity_score, reason, sorted_sofas
+    except Exception as e:
+        logger.error(f"Error finding suitable sofa: {e}")
+        raise
+
+# Inpaint Sofa into the Uploaded Image using OpenCV
+def inpaint_sofa_into_image(uploaded_image_path, sofa_image_path, mask_path, output_path):
+    try:
+        uploaded_image = cv2.imread(uploaded_image_path)
+        sofa_image = cv2.imread(sofa_image_path)
+        mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
+
+        # Ensure binary mask
+        mask = cv2.threshold(mask, 1, 255, cv2.THRESH_BINARY)[1]
+
+        # Resize everything to match original image dimensions
+        sofa_image = cv2.resize(sofa_image, (uploaded_image.shape[1], uploaded_image.shape[0]))
+        mask = cv2.resize(mask, (uploaded_image.shape[1], uploaded_image.shape[0]))
+
+        # Remove existing sofa by setting pixels to black where the mask is applied
+        background = uploaded_image.copy()
+        background[mask == 255] = [0, 0, 0]
+
+        # Overlay the new sofa onto the background
+        new_sofa = cv2.bitwise_and(sofa_image, sofa_image, mask=mask)
+        final_image = cv2.add(background, new_sofa)
+
+        cv2.imwrite(output_path, final_image)
+        return output_path
+    except Exception as e:
+        logger.error(f"Error in inpainting: {e}")
+        raise
+
+# Upload Room Image and Suggest Suitable Furniture
+@app.post("/upload/")
+async def upload_image(file: UploadFile = File(...)):
+    global GLOBAL_IMAGE
+
+    try:
+        logger.info("Uploading image...")
+        image_data = await file.read()
+        image = Image.open(BytesIO(image_data)).convert("RGB")
+        GLOBAL_IMAGE = np.array(image)  # Store image globally for segmentation
+        GLOBAL_MASK = None
+
+        # Save the image to disk for feature extraction
+        image_path = os.path.join(UPLOAD_FOLDER, file.filename)
+        with open(image_path, "wb") as buffer:
+            buffer.write(image_data)
+
+        logger.info("Image saved successfully.")
+
+        room_features = extract_features(image_path)
+        logger.info("Room features extracted.")
+
+        best_sofa, similarity_score, reason, sorted_sofas = find_most_suitable_sofa(room_features)
+        logger.info(f"Best sofa: {best_sofa}, Similarity score: {similarity_score}, Reason: {reason}")
+
+        if not best_sofa:
+            logger.info("No suitable furniture found.")
+            return JSONResponse(content={"message": "No suitable furniture found."})
+
+        sofa_name = best_sofa.replace(".jpg", "")
+        sofa_info = sofa_details.get(sofa_name, {})
+
+        response_data = {
+            "message": "Image uploaded successfully",
+            "image_url": f"http://127.0.0.1:8000/uploads/{file.filename}",
+            "suggested_furniture": {
+                "name": sofa_name,
+                "thumbnail": f"http://127.0.0.1:8000/thumbnails/{best_sofa}",
+                "glb_model": f"http://127.0.0.1:8000/furniture/{best_sofa.replace('.jpg', '.glb')}",
+                "similarity_score": float(similarity_score),
+                "reason": reason,
+                "price": sofa_info.get("price", "N/A"),
+                "description": sofa_info.get("description", "No description available.")
+            },
+            "sorted_sofas": [(sofa, float(score)) for sofa, score in sorted_sofas],
+            "sofa_details": sofa_details  # Include sofa_details in the response
+        }
+
+        logger.info(f"Returning response: {response_data}")
+        return JSONResponse(content=response_data)
+    except Exception as e:
+        logger.error(f"Error in /upload/ endpoint: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@app.post("/segment/")
+async def segment_image(data: dict):
+    global GLOBAL_IMAGE, GLOBAL_MASK
+
+    if GLOBAL_IMAGE is None:
+        raise HTTPException(status_code=400, detail="No image uploaded.")
+
+    mask_base64 = data.get("mask_base64", "")
+
+    if not mask_base64:
+        raise HTTPException(status_code=400, detail="No mask provided.")
+
+    try:
+        # Decode Base64 mask
+        mask_data = base64.b64decode(mask_base64.split(",")[1])  # Remove 'data:image/png;base64,' prefix
+        mask_image = Image.open(BytesIO(mask_data)).convert("L")  # Convert to grayscale
+
+        # Convert mask to binary format (thresholding)
+        mask_np = np.array(mask_image)
+        binary_mask = (mask_np > 128).astype(np.uint8) * 255  # Convert to binary mask
+
+        GLOBAL_MASK = Image.fromarray(binary_mask)  # Store globally
+
+        # Overlay mask on original image
+        segmented_img = overlay_mask_on_image(GLOBAL_IMAGE, binary_mask)
+
+        return JSONResponse(content={
+            "mask": pil_image_to_base64(GLOBAL_MASK),
+            "segmented_image": pil_image_to_base64(segmented_img),
+            "message": "Segmentation successful!"
+        })
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error processing mask: {str(e)}")
+
+def overlay_mask_on_image(image_array, mask_array):
+    """Overlay only the user-selected mask on the original image for visualization."""
+    image = Image.fromarray(image_array)
+    mask = Image.fromarray(mask_array).convert("L")
+    mask = mask.resize(image.size)
+
+    # Convert mask to transparent overlay
+    segmented_img = Image.new("RGB", image.size, (255, 255, 255))
+    segmented_img.paste(image, mask=mask)
+
+    return segmented_img
+
+def overlay_mask_on_image(image_array, mask_array):
+    """Overlay the mask on the original image for visualization."""
+    image = Image.fromarray(image_array)
+    mask = Image.fromarray(mask_array).convert("L")
+    mask = mask.resize(image.size)
+
+    # Convert mask to red overlay
+    red_overlay = Image.new("RGB", image.size, (255, 0, 0))
+    segmented_img = Image.composite(red_overlay, image, mask)
+
+    return segmented_img
+
+
+import base64
+from io import BytesIO
+
+# Convert PIL image to Base64
+def pil_image_to_base64(image):
+    buffered = BytesIO()
+    image.save(buffered, format="PNG")
+    return base64.b64encode(buffered.getvalue()).decode("utf-8")
+
+def encode_image(image_path):
+    """Convert an image to a Base64 string."""
+    with open(image_path, "rb") as image_file:
+        return base64.b64encode(image_file.read()).decode("utf-8")
+
+# Inpainting API with Rectangle-Based Inpainting
+@app.post("/inpainting-image")
+async def inpainting(suggested_furniture: str = Form(...)):
+    global GLOBAL_IMAGE, GLOBAL_MASK
+
+    if GLOBAL_IMAGE is None:
+        raise HTTPException(status_code=400, detail="No image uploaded.")
+    if GLOBAL_MASK is None:
+        raise HTTPException(status_code=400, detail="No segmentation mask found. Please segment first.")
+
+    try:
+        logger.info("🚀 Starting inpainting process...")
+
+        # Convert NumPy image to OpenCV format
+        original_image = cv2.cvtColor(GLOBAL_IMAGE, cv2.COLOR_RGB2BGR)
+        mask_np = np.array(GLOBAL_MASK.convert("L"))  # Convert mask to NumPy (grayscale)
+
+        # 🔴 Ensure mask is the same size as original image
+        if mask_np.shape[:2] != original_image.shape[:2]:
+            logger.info("⚠️ Resizing mask to match image size...")
+            mask_np = cv2.resize(mask_np, (original_image.shape[1], original_image.shape[0]))
+
+        # 🔄 **Invert the mask** to remove the sofa instead of the background
+        mask_np = cv2.bitwise_not(mask_np)
+
+        # Ensure binary mask (255 for inpainting area)
+        mask_np = cv2.threshold(mask_np, 1, 255, cv2.THRESH_BINARY)[1]
+
+        # **Step 1: Inpaint (Remove Sofa, Keep Background)**
+        logger.info("🛠 Removing old sofa using OpenCV inpainting...")
+        inpainted_image = cv2.inpaint(original_image, mask_np, inpaintRadius=3, flags=cv2.INPAINT_TELEA)
+
+        # **Step 2: Overlay New Furniture**
+        furniture_img_path = os.path.join(THUMBNAIL_FOLDER, suggested_furniture + ".jpg")
+        if not os.path.exists(furniture_img_path):
+            raise HTTPException(status_code=404, detail="Suggested furniture image not found.")
+
+        furniture_image = cv2.imread(furniture_img_path, cv2.IMREAD_UNCHANGED)  # Load with transparency
+
+        # 🔴 Ensure furniture image is resized to match the original image
+        furniture_resized = cv2.resize(furniture_image, (original_image.shape[1], original_image.shape[0]))
+
+        # Paste the new furniture **only where the mask was applied**
+        final_image = np.where(mask_np[..., None] > 0, furniture_resized, inpainted_image)
+
+        # Convert result to PIL and Base64 for frontend
+        final_pil = Image.fromarray(cv2.cvtColor(final_image, cv2.COLOR_BGR2RGB))
+
+        logger.info("✅ Inpainting completed successfully! Sofa replaced, background preserved.")
+        return JSONResponse(content={"image": pil_image_to_base64(final_pil), "message": "Furniture replacement complete!"})
+
+    except Exception as e:
+        logger.error(f"🚨 Inpainting error: {e}")
+        raise HTTPException(status_code=500, detail=f"Inpainting error: {str(e)}")
+   
+# Handle User Feedback
+@app.post("/feedback/")
+async def handle_feedback(feedback: dict):
+    try:
+        user_feedback = feedback.get("feedback", "").lower()
+        sorted_sofas = feedback.get("sorted_sofas", [])
+        uploaded_image_filename = feedback.get("uploaded_image_filename")
+
+        if GLOBAL_MASK is None:
+            raise HTTPException(status_code=400, detail="No segmentation mask found.")
+
+        # Save the mask locally
+        mask_path = os.path.join(UPLOAD_FOLDER, f"mask_{uploaded_image_filename}")
+        GLOBAL_MASK.save(mask_path)  # Save as PNG file
+
+        # Proceed with inpainting
+        uploaded_image_path = os.path.join(UPLOAD_FOLDER, uploaded_image_filename)
+        sofa_image_path = os.path.join(THUMBNAIL_FOLDER, sorted_sofas[0][0])
+        inpainted_image_path = os.path.join(UPLOAD_FOLDER, f"inpainted_{uploaded_image_filename}")
+
+        inpaint_sofa_into_image(uploaded_image_path, sofa_image_path, mask_path, inpainted_image_path)
+
+        return JSONResponse(content={
+            "message": "Furniture replaced successfully!",
+            "inpainted_image_url": f"http://127.0.0.1:8000/uploads/inpainted_{uploaded_image_filename}"
+        })
+
+    except Exception as e:
+        logger.error(f"Error in /feedback/ endpoint: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# AI Chatbot API
+@app.post("/chat")
+async def chat(message: dict):
+    try:
+        user_message = message.get("message", "").lower()
+        if not user_message:
+            raise HTTPException(status_code=400, detail="No message provided")
+
+        logger.info(f"User Message: {user_message}")
+
+        # Show furniture inventory
+        if "sofa" in user_message or "bed" in user_message or "furniture" in user_message or "inventory" in user_message:
+            if "bed" in user_message:
+                return JSONResponse(content={"message": "Beds will be added to the inventory soon! For now, here are the available sofas:"})
+
+            furniture_list = []
+            for filename in os.listdir(FURNITURE_FOLDER):
+                if filename.endswith(".glb"):
+                    sofa_name = filename.replace(".glb", "")
+                    sofa_info = sofa_details.get(sofa_name, {})
+                    thumbnail_filename = filename.replace(".glb", ".jpg")
+                    thumbnail_path = os.path.join(THUMBNAIL_FOLDER, thumbnail_filename)
+                    logger.info(f"Checking thumbnail path: {thumbnail_path}")
+
+                    if os.path.exists(thumbnail_path):
+                        thumbnail_url = f"http://127.0.0.1:8000/thumbnails/{thumbnail_filename}"
+                        furniture_list.append({
+                            "name": sofa_name,
+                            "thumbnail": thumbnail_url,
+                            "glb_model": f"http://127.0.0.1:8000/furniture/{filename}",
+                            "price": sofa_info.get("price", "N/A"),
+                            "description": sofa_info.get("description", "No description available.")
+                        })
+                    else:
+                        logger.info(f"Thumbnail not found for: {filename}")
+
+            if not furniture_list:
+                logger.info("No furniture items found in the inventory.")
+
+            return JSONResponse(content={"message": "Here is the furniture inventory:", "inventory": furniture_list})
+
+        # Default Chatbot Response
+        logger.info("Sending request to OpenAI...")
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": user_message}]
+        )
+        logger.info("OpenAI response received.")
+
+        chatbot_response = response.choices[0].message.content
+        return JSONResponse(content={"message": chatbot_response})
+    except Exception as e:
+        logger.error(f"Error in /chat endpoint: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Serve Static Files
+app.mount("/uploads", StaticFiles(directory=UPLOAD_FOLDER), name="uploads")
+app.mount("/thumbnails", StaticFiles(directory=THUMBNAIL_FOLDER), name="thumbnails")
+app.mount("/furniture", StaticFiles(directory=FURNITURE_FOLDER), name="furniture")
+
+# Run FastAPI
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+
+index.html:
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.0/fabric.min.js"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AR Furniture App</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            margin: 0;
+            padding: 0;
+        }
+        #chatbox {
+            width: 60%;
+            height: 300px;
+            overflow-y: scroll;
+            border: 1px solid #ccc;
+            padding: 10px;
+            margin: 10px auto;
+            text-align: left;
+            background-color: #f9f9f9;
+        }
+        #inventory-container {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        .thumbnail {
+            width: 120px;
+            height: 120px;
+            object-fit: cover;
+            border-radius: 5px;
+            border: 1px solid #ddd;
+            cursor: pointer;
+        }
+        #ar-viewer {
+            display: none;
+            margin-top: 20px;
+        }
+        model-viewer {
+            width: 100%;
+            height: 500px;
+        }
+        #canvas-container {
+            position: relative;
+            width: 700px;
+            height: 500px;
+            margin: 20px auto;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            border: 2px dashed gray;
+            background-color: #f0f0f0;
+            cursor: pointer;
+        }
+        #main-canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+            background: white;
+            border: 2px solid black;
+        }
+        #toolbar {
+            position: absolute;
+            top: 10px;
+            right: -70px;
+            display: flex;
+            flex-direction: column;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px;
+            border-radius: 8px;
+        }
+        #toolbar button {
+            background: white;
+            border: none;
+            padding: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            border-radius: 5px;
+            margin-bottom: 5px;
+        }
+        #toolbar button:hover {
+            background: lightgray;
+        }
+        #inpainted-image-section {
+            margin-top: 20px;
+            position: relative;
+        }
+        #inpaintedImage {
+            max-width: 90%;
+            height: auto;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+        #controls {
+            margin-top: 10px;
+        }
+        #suggested-furniture-section {
+            margin-top: 20px;
+        }
+    </style>
+    <!-- Load model-viewer component -->
+    <script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"></script>
+</head>
+<body>
+    <h1>AR Furniture App</h1>
+    <div id="chatbox"></div>
+    <input type="text" id="userInput" placeholder="Type your message..." onkeypress="handleKeyPress(event)">
+    <button onclick="sendMessage()">Send</button>
+
+    <div id="image-upload-section">
+        <h2>Upload Room Image</h2>
+        <div id="canvas-container">
+            <canvas id="main-canvas"></canvas>
+            <input type="file" id="imageUpload" accept="image/*" style="display: none;" onchange="loadImageToCanvas(event)">
+            <!-- Floating Toolbar -->
+            <div id="toolbar">
+                <button onclick="enableBrushTool()">🖌 Brush</button>
+                <button onclick="enableRectangleSelection()">⬛ Rectangle</button>
+                <button onclick="enableEraser()">🩹 Eraser</button>
+                <button onclick="undoLastAction()">↩️ Undo</button>
+                <button onclick="confirmMask()">✅ Confirm Mask</button>
+                <button onclick="clearMask()">❌ Clear Mask</button>
+            </div>
+        </div>
+    </div>
+
+    <h2>Furniture Inventory</h2>
+    <div id="inventory-container"></div>
+
+    <!-- Suggested Furniture Section -->
+    <div id="suggested-furniture-section" style="display: none;">
+        <h2>Best Matched Furniture</h2>
+        <img id="suggestedFurnitureImage" src="" alt="Suggested Furniture">
+        <p id="suggestedFurnitureName"></p>
+        <p id="suggestedFurniturePrice"></p>
+        <p id="suggestedFurnitureDescription"></p>
+        <button onclick="handleUserResponse('yes')">Yes</button>
+        <button onclick="handleUserResponse('no')">No</button>
+    </div>
+
+    <div id="segmented-image-section" style="display: none;">
+        <h2>Segmented Image</h2>
+        <img id="segmentedImage" src="" alt="Segmented Image">
+    </div>    
+
+    <div id="inpainted-image-section" style="display: none;">
+        <h2>Inpainted Image</h2>
+        <img id="inpaintedImage" src="" alt="Inpainted Image">
+        <div id="controls">
+            <label for="opacity">Opacity:</label>
+            <input type="range" id="opacity" min="0" max="1" step="0.1" value="1" oninput="updateOpacity()">
+            <button onclick="moveSofa(-10, 0)">←</button>
+            <button onclick="moveSofa(10, 0)">→</button>
+            <button onclick="moveSofa(0, -10)">↑</button>
+            <button onclick="moveSofa(0, 10)">↓</button>
+            <button onclick="resizeSofa(1.1)">+</button>
+            <button onclick="resizeSofa(0.9)">-</button>
+        </div>
+    </div>
+
+    <!-- AR Viewer Section -->
+    <div id="ar-viewer">
+        <h2>View in AR</h2>
+        <model-viewer
+            id="ar-model"
+            src=""
+            ar
+            ar-modes="scene-viewer quick-look"
+            camera-controls
+            auto-rotate
+            shadow-intensity="1"
+            environment-image="neutral"
+            exposure="1.5">
+        </model-viewer>
+    </div>
+
+    <script>
+        const backendUrl = "http://127.0.0.1:8000";
+        let fabricCanvas;
+        let selectedMaskBase64 = "";
+        let selectedFurniture = "";
+        let sortedSofas = [];
+
+        // Handles image upload when clicking the canvas
+        document.getElementById("main-canvas").addEventListener("click", function () {
+            document.getElementById("imageUpload").click();
+        });
+
+        // Loads the image into the canvas and sends it to the backend
+        async function loadImageToCanvas(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = async function (e) {
+                const imgObj = new Image();
+                imgObj.src = e.target.result;
+                imgObj.onload = function () {
+                    initializeCanvas(imgObj);
+                };
+
+                // Send the image to the backend
+                let formData = new FormData();
+                formData.append("file", file);
+
+                try {
+                    const response = await fetch(`${backendUrl}/upload/`, {
+                        method: "POST",
+                        body: formData,
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! Status: ${response.status}`);
+                    }
+
+                    const result = await response.json();
+                    console.log("📡 Backend Response:", result);
+
+                    // ✅ Store sorted sofas and sofa_details globally
+                    window.sortedSofas = result.sorted_sofas;  // ✅ Store globally
+                    window.sofa_details = result.sofa_details;  // ✅ Store sofa_details globally
+
+                    // Display suggested furniture
+                    if (result.suggested_furniture) {
+                        document.getElementById("suggestedFurnitureName").innerText = `Best Match: ${result.suggested_furniture.name}`;
+                        document.getElementById("suggestedFurnitureImage").src = result.suggested_furniture.thumbnail;
+                        document.getElementById("suggestedFurniturePrice").innerText = `Price: $${result.suggested_furniture.price}`;
+                        document.getElementById("suggestedFurnitureDescription").innerText = `Description: ${result.suggested_furniture.description}`;
+                        document.getElementById("suggested-furniture-section").style.display = "block";
+
+                        addChatbotMessage(`We recommend ${result.suggested_furniture.name}. ${result.suggested_furniture.reason}`);
+                        addChatbotMessage("Is this okay? (Click 'Yes' or 'No')");
+                    } else {
+                        addChatbotMessage("⚠️ No suitable furniture found.");
+                    }
+                } catch (error) {
+                    console.error("❌ Upload failed:", error);
+                    alert("⚠️ Image upload failed. Check the console for details.");
+                }
+            };
+            reader.readAsDataURL(file);
+        }
+
+        // Initializes Fabric.js canvas with uploaded image
+        function initializeCanvas(imageObj) {
+            const canvasElement = document.getElementById("main-canvas");
+
+            // Create Fabric.js canvas if not initialized
+            if (!fabricCanvas) {
+                fabricCanvas = new fabric.Canvas("main-canvas", {
+                    isDrawingMode: false, // Start in non-drawing mode
+                    backgroundColor: "white",
+                });
+            } else {
+                fabricCanvas.clear(); // Clear previous drawings
+            }
+
+            fabricCanvas.setWidth(canvasElement.clientWidth);
+            fabricCanvas.setHeight(canvasElement.clientHeight);
+
+            // Add the uploaded image to the canvas
+            const fabricImage = new fabric.Image(imageObj, {
+                left: 0,
+                top: 0,
+                scaleX: fabricCanvas.width / imageObj.width,
+                scaleY: fabricCanvas.height / imageObj.height,
+                selectable: false, // Disable moving/resizing the image
+                evented: false, // Disable interaction with the image
+            });
+
+            fabricCanvas.add(fabricImage);
+            fabricCanvas.renderAll();
+
+            // Show toolbar after image is loaded
+            document.getElementById("toolbar").style.display = "flex";
+        }
+
+        // Enable Freehand Brush
+        function enableBrushTool() {
+            if (!fabricCanvas) return;
+            fabricCanvas.isDrawingMode = true; // Enable drawing mode
+            fabricCanvas.freeDrawingBrush.width = 10; // Set brush size
+            fabricCanvas.freeDrawingBrush.color = "red"; // Set brush color
+        }
+
+        // Enable Rectangle Selection
+        function enableRectangleSelection() {
+            if (!fabricCanvas) return;
+            fabricCanvas.isDrawingMode = false; // Disable drawing mode
+            let rect, isDrawing = false;
+
+            fabricCanvas.on('mouse:down', function (o) {
+                const pointer = fabricCanvas.getPointer(o.e);
+                isDrawing = true;
+                rect = new fabric.Rect({
+                    left: pointer.x,
+                    top: pointer.y,
+                    width: 0,
+                    height: 0,
+                    fill: "rgba(255, 0, 0, 0.5)", // Semi-transparent red fill
+                    stroke: "red", // Red border
+                    strokeWidth: 2,
+                    selectable: false, // Disable moving/resizing the rectangle
+                });
+                fabricCanvas.add(rect);
+            });
+
+            fabricCanvas.on('mouse:move', function (o) {
+                if (!isDrawing || !rect) return;
+                const pointer = fabricCanvas.getPointer(o.e);
+                rect.set({
+                    width: pointer.x - rect.left,
+                    height: pointer.y - rect.top,
+                });
+                fabricCanvas.renderAll();
+            });
+
+            fabricCanvas.on('mouse:up', function () {
+                isDrawing = false;
+            });
+        }
+
+        // Enable Eraser
+        function enableEraser() {
+            if (!fabricCanvas) return;
+            fabricCanvas.isDrawingMode = true; // Enable drawing mode
+            fabricCanvas.freeDrawingBrush.width = 20; // Set eraser size
+            fabricCanvas.freeDrawingBrush.color = "white"; // Acts as eraser
+        }
+
+        // Clear Mask
+        function clearMask() {
+            if (fabricCanvas) {
+                // Clear all objects except the background image
+                const backgroundImage = fabricCanvas.getObjects().find(obj => obj.type === "image");
+                fabricCanvas.clear();
+                if (backgroundImage) {
+                    fabricCanvas.add(backgroundImage); // Re-add the background image
+                }
+            }
+        }
+
+        // Handle user response to suggested furniture
+        function handleUserResponse(response) {
+            console.log("User response:", response);
+
+            if (response === "yes") {
+                console.log("User accepted the suggested sofa.");
+
+                document.getElementById("suggested-furniture-section").style.display = "block";
+
+                if (selectedMaskBase64) {
+                    console.log("Mask already drawn. Proceeding to inpainting...");
+                    inpaintImage(); // If mask exists, proceed to inpainting
+                } else {
+                    console.log("No mask drawn. Asking user to draw one...");
+                    addChatbotMessage("Please draw a mask over the furniture area you want to replace and confirm it.");
+                    enableRectangleSelection(); // Allow user to draw mask
+                }
+
+            } else {
+                console.log("User rejected the suggestion. Fetching next best furniture...");
+                getNextBestFurniture(); // Fetch the next best sofa
+            }
+        }
+
+        // Fetch the next best sofa
+        function getNextBestFurniture() {
+            console.log("Fetching next best furniture...");
+
+            if (window.sortedSofas && window.sortedSofas.length > 1) {
+                // Remove the first sofa (already rejected)
+                window.sortedSofas.shift();
+
+                // Get the next best sofa
+                const nextFurniture = window.sortedSofas[0][0];
+                const sofaName = nextFurniture.replace(".jpg", "");
+                const sofaInfo = window.sofa_details[sofaName];  // Use sofa_details from the backend
+
+                console.log("Next best sofa:", sofaName);
+
+                // Update UI
+                document.getElementById("suggestedFurnitureName").innerText = `Best Match: ${sofaName}`;
+                document.getElementById("suggestedFurnitureImage").src = `http://127.0.0.1:8000/thumbnails/${nextFurniture}`;
+                document.getElementById("suggestedFurniturePrice").innerText = `Price: $${sofaInfo.price}`;
+                document.getElementById("suggestedFurnitureDescription").innerText = `Description: ${sofaInfo.description}`;
+                document.getElementById("suggested-furniture-section").style.display = "block";
+
+                addChatbotMessage(`How about this one: ${sofaName}?`);
+                addChatbotMessage("Is this okay? (Click 'Yes' or 'No')");
+            } else {
+                console.log("No more sofas available.");
+                addChatbotMessage("No more suggested sofas available.");
+            }
+        }
+
+        async function confirmMask() {
+            console.log("Confirm Mask Clicked! Extracting mask...");
+
+            // Get the drawn mask from the canvas
+            const maskDataURL = fabricCanvas.toDataURL("image/png");
+
+            addChatbotMessage("Processing segmentation...");
+
+            try {
+                const response = await fetch(`${backendUrl}/segment/`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ mask_base64: maskDataURL }) // Send Base64 mask
+                });
+
+                const result = await response.json();
+                console.log("Segmentation response:", result);
+
+                if (result.mask) {
+                    addChatbotMessage("Segmentation successful! Now displaying the segmented image...");
+
+                    // Display segmented image
+                    document.getElementById("segmentedImage").src = `data:image/png;base64,${result.segmented_image}`;
+                    document.getElementById("segmented-image-section").style.display = "block";
+
+                    // Proceed with inpainting automatically
+                    setTimeout(() => {
+                        addChatbotMessage("Proceeding to inpainting...");
+                        inpaintImage();
+                    }, 1500);
+                } else {
+                    addChatbotMessage("Segmentation failed. Please try again.");
+                }
+            } catch (error) {
+                console.error("Error during segmentation:", error);
+                addChatbotMessage("Segmentation error. Try again.");
+            }
+        }
+
+        async function inpaintImage() {
+            console.log("🚀 Sending image for inpainting...");
+
+            if (!window.sortedSofas || window.sortedSofas.length === 0) {
+                console.error("❌ No furniture suggestion found!");
+                addChatbotMessage("⚠️ No furniture suggestion found. Please try again.");
+                return;
+            }
+
+            let suggestedFurniture = window.sortedSofas[0][0].replace(".jpg", "");  // ✅ Use global sortedSofas
+            console.log("✅ Suggested Furniture:", suggestedFurniture);
+
+            let formData = new FormData();
+            formData.append("suggested_furniture", suggestedFurniture);
+
+            try {
+                const response = await fetch(`${backendUrl}/inpainting-image`, {
+                    method: "POST",
+                    body: formData,
+                });
+
+                console.log("📡 Inpainting API called...");
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error("❌ Inpainting API failed:", errorText);
+                    addChatbotMessage("🚨 Inpainting failed. Check console for details.");
+                    return;
+                }
+
+                const data = await response.json();
+                console.log("📸 Inpainting response received:", data);
+
+                if (data.image) {
+                    document.getElementById("inpaintedImage").src = `data:image/png;base64,${data.image}`;
+                    document.getElementById("inpainted-image-section").style.display = "block";
+                    addChatbotMessage("🎉 Inpainting completed!");
+
+                    // Update AR view with the new GLB model
+                    const arModel = document.getElementById("ar-model");
+                    arModel.src = `http://127.0.0.1:8000/furniture/${suggestedFurniture}.glb`;
+                    document.getElementById("ar-viewer").style.display = "block";
+                } else {
+                    addChatbotMessage("⚠️ Inpainting failed. Try again.");
+                }
+            } catch (error) {
+                console.error("🚨 Error during inpainting:", error);
+                addChatbotMessage("Something went wrong, please try again.");
+            }
+        }
+
+        // Function to send user input to the chatbot backend
+        async function sendMessage() {
+            const userInput = document.getElementById("userInput").value;
+            if (!userInput) return;
+
+            // Display user message in the chatbox
+            const chatbox = document.getElementById("chatbox");
+            const userMessage = document.createElement("p");
+            userMessage.innerHTML = `<strong>You:</strong> ${userInput}`;
+            chatbox.appendChild(userMessage);
+            chatbox.scrollTop = chatbox.scrollHeight;
+
+            // Clear the input field
+            document.getElementById("userInput").value = "";
+
+            try {
+                // Send user input to the backend
+                const response = await fetch(`${backendUrl}/chat`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ message: userInput })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! Status: ${response.status}`);
+                }
+
+                const result = await response.json();
+
+                // Display chatbot response
+                addChatbotMessage(result.message);
+
+                // If chatbot suggests furniture, display it
+                if (result.inventory) {
+                    displayFurnitureInventory(result.inventory);
+                }
+
+            } catch (error) {
+                console.error("Error sending message:", error);
+                addChatbotMessage("Sorry, something went wrong. Please try again.");
+            }
+        }
+
+        // Handle Enter key press in chat input
+        function handleKeyPress(event) {
+            if (event.key === "Enter") {
+                sendMessage();
+            }
+        }
+
+        // Function to display furniture inventory
+        function displayFurnitureInventory(inventory) {
+            const inventoryContainer = document.getElementById("inventory-container");
+            inventoryContainer.innerHTML = ""; // Clear previous inventory
+
+            inventory.forEach(item => {
+                if (item.thumbnail) {
+                    const imgElement = document.createElement("img");
+                    imgElement.src = item.thumbnail;
+                    imgElement.alt = item.name;
+                    imgElement.classList.add("thumbnail");
+
+                    // Select furniture on click
+                    imgElement.onclick = () => {
+                        selectedFurniture = item.name;
+                        addChatbotMessage(`You selected: ${item.name}`);
+                        addChatbotMessage(`Chatbot: ${item.name} costs $${item.price}. ${item.description}`);
+                    };
+
+                    inventoryContainer.appendChild(imgElement);
+                }
+            });
+        }
+
+        // Function to add chatbot messages to the chatbox
+        function addChatbotMessage(message) {
+            const chatbox = document.getElementById("chatbox");
+            const newMessage = document.createElement("p");
+            newMessage.innerHTML = `<strong>Chatbot:</strong> ${message}`;
+            chatbox.appendChild(newMessage);
+            chatbox.scrollTop = chatbox.scrollHeight;
+        }
+
+        // Initialize Chatbot
+        addChatbotMessage("Hello! How can I help you today?");
+    </script>
+</body>
+</html>

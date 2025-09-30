@@ -1,0 +1,37 @@
+To run the application:
+
+Prerequisites:
+
+python 3.8 or higher
+pip package manager
+An Nvidia GPU
+Node.js
+
+Step-by-Step Setup Instructions:
+
+Install Python Dependencies:
+
+Run this command to install all required packages:
+
+pip install fastapi uvicorn python-dotenv openai torch torchvision numpy pillow scikit-image scikit-learn opencv-python segment-anything
+
+Download Model Weights:
+
+mkdir -p models
+wget https://dl.fbaipublicfiles.com/segment_anything/sam_vit_h_4b8939.pth -O models/sam_vit_h_4b8939.pth
+
+
+To run the code:
+
+Open 2 terminals in vs code.
+
+1st terminal enter these prompts:
+1) cd backend
+2) uvicorn main:app --reload
+
+2nd terminal enter these prompts:
+1) cd frontend
+2) python -m http.server 5500
+
+After doing all the above steps open this link to access the website: http://127.0.0.1:5500/home.html
+
