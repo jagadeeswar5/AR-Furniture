@@ -351,6 +351,17 @@ async def replace_object(data: dict):
 
 # Extract Features from an Image
 def extract_features(image_path):
+    """Extract a fixed-length visual embedding for an image using ResNet50.
+
+    Purpose
+    - Converts an input image to a normalized tensor and forwards it through a
+      pretrained ResNet50 trunk (avg-pooled features).
+    - Used to compare a room photo against sofa thumbnails via cosine
+      similarity.
+
+    Returns
+    - 1D numpy array feature vector (float32)
+    """
     try:
         logger.info(f"Extracting features from: {image_path}")
         image = Image.open(image_path).convert("RGB")
@@ -364,6 +375,14 @@ def extract_features(image_path):
 
 # Find the Most Suitable Sofa with Reasoning
 def find_most_suitable_sofa(room_features):
+    """Rank sofas by cosine similarity to the room's visual features.
+
+    Steps
+    - Compute/collect embeddings for all sofa thumbnails.
+    - Compute cosine similarity against the room embedding.
+    - Return top match, its score, a human-readable reason, and the full
+      sorted list for cycling in the UI.
+    """
     try:
         logger.info("Finding the most suitable sofa...")
         sofa_features = {}
@@ -462,6 +481,15 @@ def inpaint_sofa_into_image(uploaded_image_path, sofa_image_path, mask_path, out
 # Upload Room Image and Suggest Suitable Furniture
 @app.post("/upload/")
 async def upload_image(file: UploadFile = File(...)):
+    """Handle room photo upload and return the initial recommendation.
+
+    What it does
+    - Stores the uploaded image and a copy in memory for subsequent
+      segmentation.
+    - Extracts room features and ranks sofas (image→image cosine).
+    - Responds with the best match, match score, and a ranked list for
+      "Show me another" cycling in the frontend.
+    """
     global GLOBAL_IMAGE
 
     try:
@@ -519,6 +547,13 @@ async def upload_image(file: UploadFile = File(...)):
     
 @app.post("/segment/")
 async def segment_image(data: dict):
+    """Accept the user-drawn mask and return a preview overlay.
+
+    Notes
+    - We respect the exact mask drawn on the canvas (no SAM expansion).
+    - The response includes a transparent preview to confirm before applying
+      furniture.
+    """
     global GLOBAL_IMAGE, GLOBAL_MASK
 
     if GLOBAL_IMAGE is None:
@@ -561,7 +596,11 @@ async def segment_image(data: dict):
         raise HTTPException(status_code=500, detail=f"Error processing mask: {str(e)}")
 
 def overlay_mask_on_image(image_array, mask_array):
-    """Create a transparent mask overlay showing only the masked area."""
+    """Create a transparent overlay that reveals only the masked area.
+
+    This is purely a visualization step used after segmentation confirmation
+    so the user can verify the selected region before any modification.
+    """
     image = Image.fromarray(image_array)
     mask = Image.fromarray(mask_array).convert("L")
     mask = mask.resize(image.size)
@@ -591,6 +630,14 @@ def encode_image(image_path):
 # Inpainting API with Rectangle-Based Inpainting
 @app.post("/inpainting-image")
 async def inpainting(suggested_furniture: str = Form(...)):
+    """Composite the selected sofa within the confirmed mask area.
+
+    Strategy
+    - Avoid heavy background inpainting; keep original pixels outside the mask
+      untouched to prevent artifacts.
+    - Resize sofa to the mask bounds and bottom-align to simulate grounding.
+    - Use alpha blending where available for natural edges.
+    """
     global GLOBAL_IMAGE, GLOBAL_MASK
 
     if GLOBAL_IMAGE is None:
@@ -737,9 +784,9 @@ async def inpainting(suggested_furniture: str = Form(...)):
             
         except Exception as furniture_error:
             logger.error(f"Simple furniture overlay failed: {furniture_error}")
-            logger.info(" Using original image as fallback...")
-            # Use the original working image as fallback
-            final_image = working_image.copy()
+                    logger.info(" Using original image as fallback...")
+                    # Use the original working image as fallback
+                    final_image = working_image.copy()
 
         # Convert result to PIL and Base64 for frontend
         final_pil = Image.fromarray(cv2.cvtColor(final_image, cv2.COLOR_BGR2RGB))
@@ -754,6 +801,7 @@ async def inpainting(suggested_furniture: str = Form(...)):
 # Handle User Feedback
 @app.post("/feedback/")
 async def handle_feedback(feedback: dict):
+    """Legacy endpoint: save mask and run file-based inpainting pipeline."""
     try:
         user_feedback = feedback.get("feedback", "").lower()
         sorted_sofas = feedback.get("sorted_sofas", [])
@@ -785,6 +833,12 @@ async def handle_feedback(feedback: dict):
 # Enhanced AI Chatbot API
 @app.post("/chat")
 async def chat(message: dict):
+    """Chatbot endpoint with inventory-aware guidance and fallbacks.
+
+    - Prefers an OpenAI chat model; falls back to a deterministic message when
+      API keys/quotas fail.
+    - Enforces inventory constraints (sofas only) and price filtering.
+    """
     try:
         user_message = message.get("message", "").strip()
         if not user_message:
@@ -920,7 +974,7 @@ async def chat(message: dict):
 # AR Model Endpoint
 @app.get("/ar-model/{furniture_name}")
 async def get_ar_model(furniture_name: str):
-    """Get AR model URL for QR code generation"""
+    """Return GLB URL and Android Scene Viewer intent for QR generation."""
     try:
         glb_path = os.path.join(FURNITURE_FOLDER, f"{furniture_name}.glb")
         if not os.path.exists(glb_path):
