@@ -4,16 +4,16 @@ A development project exploring AI-powered furniture placement using augmented r
 
 ## 📋 Table of Contents
 
-- [Overview](#overview)
-- [Features](#features)
-- [Technologies Used](#technologies-used)
-- [Installation & Setup](#installation--setup)
-- [How to Use](#how-to-use)
-- [Project Structure](#project-structure)
-- [API Endpoints](#api-endpoints)
-- [Development Notes](#development-notes)
-- [Testing](#testing)
-- [Contributing](#contributing)
+- [Overview]
+- [Features]
+- [Technologies Used]
+- [Installation & Setup]
+- [How to Use]
+- [Project Structure]
+- [API Endpoints]
+- [Development Notes]
+- [Testing]
+- [Contributing]
 
 ## 🎯 Overview
 
