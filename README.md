@@ -273,7 +273,7 @@ How to execute
 - **Chrome/Edge**: Full support including AR features
 - **Firefox**: Full support, limited AR features
 - **Safari**: Full support, AR via Scene Viewer
-- **Mobile**: iOS and Android AR support
+- **Mobile**: Android AR support
 
 ## 🤝 Contributing
 
