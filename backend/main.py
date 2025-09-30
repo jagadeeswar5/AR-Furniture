@@ -80,7 +80,7 @@ resnet = torch.nn.Sequential(*list(resnet.children())[:-1])
 resnet.eval()
 resnet.to(device)
 
-# Image Preprocessing for ResNet
+# Image Preprocessing for ResNet (Converts uploaded room photos and sofa thumbnails into standardized tensors that ResNet50 can process)
 preprocess = transforms.Compose([
     transforms.Resize(256),
     transforms.CenterCrop(224),
@@ -132,6 +132,11 @@ sofa_details = {
 INVENTORY_EMBEDDINGS = {}
 
 def _build_inventory_text(sofa_key: str) -> str:
+    """Build a searchable text string from sofa metadata for text-based recommendations.
+    
+    Combines name, description, style, color, material, and dimensions into one string
+    that gets embedded for cosine similarity matching against user queries.
+    """
     meta = sofa_details.get(sofa_key, {})
     parts = [
         meta.get("name", ""),
@@ -144,6 +149,11 @@ def _build_inventory_text(sofa_key: str) -> str:
     return " ".join(p for p in parts if p)
 
 def _get_text_embedding(text: str):
+    """Convert text to a vector embedding using OpenAI's text-embedding-3-small model.
+    
+    Used for text-based furniture recommendations - converts user queries and sofa
+    descriptions into comparable vector representations for cosine similarity.
+    """
     try:
         emb = client.embeddings.create(
             model=os.getenv("EMBEDDING_MODEL", "text-embedding-3-small"),
@@ -155,6 +165,11 @@ def _get_text_embedding(text: str):
         return None
 
 def _ensure_inventory_embeddings():
+    """Pre-compute and cache text embeddings for all furniture items.
+    
+    Runs once on first recommendation request - converts all sofa descriptions
+    to embeddings and stores them in memory for fast cosine similarity calculations.
+    """
     global INVENTORY_EMBEDDINGS
     if INVENTORY_EMBEDDINGS:
         return
@@ -214,7 +229,11 @@ def recommend_furniture_by_cosine(user_message: str, top_k: int = 3):
 # New endpoint to get initial furniture data
 @app.get("/get-initial-furniture")
 async def get_initial_furniture():
-    """Endpoint to get initial furniture data when the app loads"""
+    """Load furniture inventory and metadata when the frontend starts.
+    
+    Returns all available sofas with their details (name, price, description, etc.)
+    and thumbnail/GLB URLs for the frontend to display and use in recommendations.
+    """
     try:
         # Prepare inventory list with all available furniture
         inventory = []
@@ -242,7 +261,12 @@ async def get_initial_furniture():
 # AI Object Detection Endpoints
 @app.post("/detect-objects")
 async def detect_objects(file: UploadFile = File(...)):
-    """Use AI to detect all objects in the uploaded image"""
+    """Detect and segment all objects in an uploaded image using SAM.
+    
+    Uses Segment Anything Model to automatically find objects, then improves
+    object names with AI. Returns bounding boxes, confidence scores, and preview images.
+    (This is an experimental feature - not used in the main furniture replacement flow)
+    """
     try:
         logger.info("Detecting objects in uploaded image...")
         
@@ -294,7 +318,12 @@ async def detect_objects(file: UploadFile = File(...)):
 
 @app.post("/replace-object")
 async def replace_object(data: dict):
-    """Replace the selected object with chosen furniture"""
+    """Replace a detected object with selected furniture using SAM masks.
+    
+    Takes an object ID from automatic detection and replaces it with a chosen
+    furniture item. Uses the object's SAM-generated mask for precise replacement.
+    (This is an experimental feature - not used in the main furniture replacement flow)
+    """
     try:
         image_filename = data.get("image_filename")
         object_id = data.get("object_id")
@@ -413,6 +442,11 @@ def find_most_suitable_sofa(room_features):
 
 # Inpaint Sofa into the Uploaded Image using OpenCV
 def inpaint_sofa_into_image(uploaded_image_path, sofa_image_path, mask_path, output_path):
+    """Legacy inpainting function using OpenCV with feathering and alpha blending.
+    
+    This is an older approach that uses morphological operations and soft blending.
+    Not used in the current main flow - kept for reference/experimental purposes.
+    """
     try:
         # Load original image, sofa, and mask
         uploaded_image = cv2.imread(uploaded_image_path)
@@ -618,12 +652,21 @@ def overlay_mask_on_image(image_array, mask_array):
 
 # Convert PIL image to Base64
 def pil_image_to_base64(image):
+    """Convert a PIL Image to base64 string for sending to frontend.
+    
+    Used to encode processed images (segmented previews, final results) so they
+    can be displayed in the browser without saving to disk.
+    """
     buffered = BytesIO()
     image.save(buffered, format="PNG")
     return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
 def encode_image(image_path):
-    """Convert an image to a Base64 string."""
+    """Convert an image file to a Base64 string for API calls.
+    
+    Used for sending images to external APIs (like OpenAI vision) that require
+    base64-encoded image data in their requests.
+    """
     with open(image_path, "rb") as image_file:
         return base64.b64encode(image_file.read()).decode("utf-8")
 
@@ -784,9 +827,9 @@ async def inpainting(suggested_furniture: str = Form(...)):
             
         except Exception as furniture_error:
             logger.error(f"Simple furniture overlay failed: {furniture_error}")
-                    logger.info(" Using original image as fallback...")
-                    # Use the original working image as fallback
-                    final_image = working_image.copy()
+            logger.info(" Using original image as fallback...")
+            # Use the original working image as fallback
+            final_image = working_image.copy()
 
         # Convert result to PIL and Base64 for frontend
         final_pil = Image.fromarray(cv2.cvtColor(final_image, cv2.COLOR_BGR2RGB))
