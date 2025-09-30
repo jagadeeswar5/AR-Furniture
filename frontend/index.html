@@ -105,7 +105,7 @@
             <div class="text-center">
                 <img id="segmentedImage" src="" alt="Segmented Image" class="furniture-image">
                 <p class="mt-4" style="color: var(--gray-600);">
-                    The red area shows where the furniture will be placed
+                    The rectangle area shows where the furniture will be placed
                 </p>
         </div>
         </section>
@@ -199,40 +199,45 @@
         // Configuration
         const host = window.location.hostname || '127.0.0.1';
         const backendUrl = `http://${host}:8000`;
-        // Global variables
-        let fabricCanvas;
-        let selectedFurniture = "";
-        let sortedSofas = [];
-        let sofaDetails = {};
+        
+        // Global variables for state management
+        let fabricCanvas;        // Fabric.js canvas instance for drawing masks
+        let selectedFurniture = "";  // Currently selected furniture name
+        let sortedSofas = [];    // Ranked list of sofas from backend recommendation
+        let sofaDetails = {};    // Metadata (price, description, etc.) for each sofa
         // Initialize the app
         document.addEventListener('DOMContentLoaded', function() {
             initializeApp();
         });
         async function initializeApp() {
-            // Initialize chatbot
+            // Initialize chatbot with welcome messages
             addChatbotMessage("👋 Hello! I'm your AI interior design assistant. I can help you find the perfect furniture for your space!");
             addChatbotMessage("💡 Try asking me about furniture styles, upload a room photo for recommendations, or say 'show inventory' to see what we have available.");
-            // Load initial furniture data
+            
+            // Load furniture inventory and metadata from backend
             await loadInitialFurnitureData();
-            // Set up canvas click handler
+            
+            // Set up canvas click handler - clicking canvas opens file picker
             document.getElementById("main-canvas").addEventListener("click", function() {
                 document.getElementById("imageUpload").click();
             });
-            // Set up opacity slider
+            
+            // Set up opacity slider for furniture adjustment
             const opacitySlider = document.getElementById("opacity");
             const opacityValue = document.getElementById("opacityValue");
             opacitySlider.addEventListener('input', function() {
                 opacityValue.textContent = Math.round(this.value * 100) + '%';
             });
         }
-        // Load initial furniture data
+        // Load initial furniture data from backend
         async function loadInitialFurnitureData() {
             try {
                 showLoading(true);
+                // Fetch furniture inventory, metadata, and thumbnail URLs from backend
                 const response = await fetch(`${backendUrl}/get-initial-furniture`);
                 if (!response.ok) throw new Error('Failed to load furniture data');
                 const data = await response.json();
-                window.sofaDetails = data.sofa_details;
+                window.sofaDetails = data.sofa_details;  // Store globally for later use
                 console.log("Initial furniture data loaded:", window.sofaDetails);
                 // Don't auto-display inventory - only show when user requests it
             } catch (error) {
@@ -246,19 +251,23 @@
         function showLoading(show) {
             document.getElementById('loading-overlay').style.display = show ? 'flex' : 'none';
         }
-        // Load image to canvas
+        // Load image to canvas and trigger recommendation
         async function loadImageToCanvas(event) {
             const file = event.target.files[0];
             if (!file) return;
             showLoading(true);
             addChatbotMessage("📸 Processing your room image...");
+            
             const reader = new FileReader();
             reader.onload = async function(e) {
+                // Create image object for canvas display
                 const imgObj = new Image();
                 imgObj.src = e.target.result;
                 imgObj.onload = function() {
-                    initializeCanvas(imgObj);
+                    initializeCanvas(imgObj);  // Set up Fabric.js canvas with the image
                 };
+                
+                // Send image to backend for feature extraction and recommendation
                 let formData = new FormData();
                 formData.append("file", file);
                 try {
@@ -271,8 +280,11 @@
                     }
                     const result = await response.json();
                     console.log("Backend Response:", result);
+                    
+                    // Store ranked sofas and metadata for "Show me another" functionality
                     window.sortedSofas = result.sorted_sofas;
                     window.sofaDetails = result.sofa_details;
+                    
                     if (result.suggested_furniture) {
                         displaySuggestedFurniture(result.suggested_furniture);
                         addChatbotMessage(`🎯 Perfect! I found a great match: ${result.suggested_furniture.name}`);
@@ -290,11 +302,14 @@
             };
             reader.readAsDataURL(file);
         }
-        // Display suggested furniture
+        // Display suggested furniture in the UI
         function displaySuggestedFurniture(furniture) {
+            // Update furniture card with name, image, price, and description
             document.getElementById("suggestedFurnitureName").textContent = furniture.name;
             document.getElementById("suggestedFurnitureImage").src = furniture.thumbnail;
             document.getElementById("suggestedFurniturePrice").textContent = `$${furniture.price}`;
+            
+            // Display match score (from image similarity or text similarity)
             if (typeof furniture.similarity_score !== 'undefined') {
                 const pct = Math.round(Math.max(0, Math.min(1, furniture.similarity_score)) * 100);
                 document.getElementById("suggestedFurnitureScore").textContent = `Match score: ${pct}%`;
@@ -308,52 +323,63 @@
             document.getElementById("suggestedFurnitureDescription").textContent = furniture.description;
             document.getElementById("suggested-furniture-section").style.display = 'block';
         }
-        // Initialize Fabric.js canvas
+        // Initialize Fabric.js canvas with uploaded image
         function initializeCanvas(imageObj) {
             const canvasElement = document.getElementById("main-canvas");
             if (!fabricCanvas) {
+                // Create new Fabric.js canvas instance
                 fabricCanvas = new fabric.Canvas("main-canvas", {
                     isDrawingMode: false,
                     backgroundColor: "white",
                 });
             } else {
-                fabricCanvas.clear();
+                fabricCanvas.clear();  // Clear existing content
             }
+            
+            // Set canvas dimensions (max 800x600)
             let maxCanvasWidth = 800;
             let maxCanvasHeight = 600;
             fabricCanvas.setWidth(maxCanvasWidth);
             fabricCanvas.setHeight(maxCanvasHeight);
+            
+            // Calculate scale factor to fit image within canvas bounds
             let scaleFactor = Math.min(
                 maxCanvasWidth / imageObj.width,
                 maxCanvasHeight / imageObj.height
             );
             let scaledWidth = imageObj.width * scaleFactor;
             let scaledHeight = imageObj.height * scaleFactor;
+            
+            // Create Fabric.js image object (non-selectable, non-interactive)
             const fabricImage = new fabric.Image(imageObj, {
-                left: (maxCanvasWidth - scaledWidth) / 2,
-                top: (maxCanvasHeight - scaledHeight) / 2,
+                left: (maxCanvasWidth - scaledWidth) / 2,  // Center horizontally
+                top: (maxCanvasHeight - scaledHeight) / 2,  // Center vertically
                 scaleX: scaleFactor,
                 scaleY: scaleFactor,
-                selectable: false,
-                evented: false,
+                selectable: false,  // Prevent user from moving/resizing the background
+                evented: false,     // Prevent user interaction with background
             });
+            
             fabricCanvas.add(fabricImage);
             fabricCanvas.renderAll();
-            document.getElementById("toolbar").style.display = "flex";
+            document.getElementById("toolbar").style.display = "flex";  // Show drawing tools
             addChatbotMessage("✅ Image loaded! Use the tools above to mark the furniture area you want to replace.");
         }
-        // Canvas tools
+        // Canvas drawing tools for mask creation
         function enableBrushTool() {
             if (!fabricCanvas) return;
-            fabricCanvas.isDrawingMode = true;
-            fabricCanvas.freeDrawingBrush.width = 10;
-            fabricCanvas.freeDrawingBrush.color = "red";
+            fabricCanvas.isDrawingMode = true;  // Enable free drawing
+            fabricCanvas.freeDrawingBrush.width = 10;  // Set brush size
+            fabricCanvas.freeDrawingBrush.color = "red";  // Red color for mask
             updateToolbarActive('brush');
         }
+        
         function enableRectangleSelection() {
             if (!fabricCanvas) return;
-            fabricCanvas.isDrawingMode = false;
+            fabricCanvas.isDrawingMode = false;  // Disable free drawing
             let rect, isDrawing = false;
+            
+            // Mouse down: start drawing rectangle
             fabricCanvas.on('mouse:down', function(o) {
                 const pointer = fabricCanvas.getPointer(o.e);
                 isDrawing = true;
@@ -362,13 +388,15 @@
                     top: pointer.y,
                     width: 0,
                     height: 0,
-                    fill: "rgba(255, 0, 0, 0.5)",
-                    stroke: "red",
+                    fill: "rgba(255, 0, 0, 0.5)",  // Semi-transparent red fill
+                    stroke: "red",  // Red border
                     strokeWidth: 2,
-                    selectable: false,
+                    selectable: false,  // Prevent user from selecting the rectangle
                 });
                 fabricCanvas.add(rect);
             });
+            
+            // Mouse move: resize rectangle while dragging
             fabricCanvas.on('mouse:move', function(o) {
                 if (!isDrawing || !rect) return;
                 const pointer = fabricCanvas.getPointer(o.e);
@@ -378,16 +406,19 @@
                 });
                 fabricCanvas.renderAll();
             });
+            
+            // Mouse up: finish drawing rectangle
             fabricCanvas.on('mouse:up', function() {
                 isDrawing = false;
             });
             updateToolbarActive('rectangle');
         }
+        
         function enableEraser() {
             if (!fabricCanvas) return;
-            fabricCanvas.isDrawingMode = true;
-            fabricCanvas.freeDrawingBrush.width = 20;
-            fabricCanvas.freeDrawingBrush.color = "white";
+            fabricCanvas.isDrawingMode = true;  // Enable free drawing
+            fabricCanvas.freeDrawingBrush.width = 20;  // Larger brush for erasing
+            fabricCanvas.freeDrawingBrush.color = "white";  // White color to "erase" red mask
             updateToolbarActive('eraser');
         }
         function clearMask() {
@@ -535,18 +566,20 @@
                 setTimeout(() => resolve('127.0.0.1'), 3000); // fallback
             });
         }
-        // Show QR code for AR
+        // Generate QR code for Android AR viewing
         async function showQRCode() {
             const modelViewer = document.querySelector('model-viewer');
             if (!modelViewer || !modelViewer.src) {
                 addChatbotMessage("❌ No furniture selected for AR viewing.");
                 return;
             }
-            // Show modal immediately
+            
+            // Show QR modal immediately
             document.getElementById('qr-modal').style.display = 'flex';
             const qrCodeElement = document.getElementById('qr-code');
             qrCodeElement.innerHTML = '<div class="loading" style="margin: 0 auto;"></div>';
-            // Use the correct IP address for mobile access
+            
+            // Use fixed IP address for mobile access (replace localhost with LAN IP)
             const localIP = '192.168.0.7'; // Fixed IP address
             let fileUrl = modelViewer.src;
             // Replace any localhost/127.0.0.1 with the actual IP address
@@ -556,23 +589,27 @@
             console.log("Using IP for QR:", localIP);
             console.log("File URL for QR:", fileUrl);
             console.log("QRCode library available:", typeof QRCode !== 'undefined');
+            
             // Create AR viewer URL instead of direct GLB URL
             const modelName = fileUrl.split('/').pop().replace('.glb', '');
             const arViewerUrl = `http://${localIP}:3000/ar-viewer.html?model=${modelName}`;
+            
             // Update the direct link display
             document.getElementById('direct-ar-link').innerHTML = `
                 <a href="${arViewerUrl}" target="_blank" style="color: var(--primary-color);">
                     ${arViewerUrl}
                 </a>
             `;
-            // Use Google Scene Viewer for direct AR access
+            
+            // Build Google Scene Viewer intent URL for Android AR
             const modelUrl = encodeURIComponent(fileUrl);
             const intentUrl = `https://arvr.google.com/scene-viewer/1.0?file=${modelUrl}&mode=ar_only`;
             console.log("QR Code URL:", intentUrl);
             console.log("Generating QR for URL:", intentUrl);
-            // Try multiple QR code generation methods
+            
+            // Try multiple QR code generation methods with fallbacks
             try {
-                // Method 1: Try toCanvas
+                // Method 1: Try toCanvas (renders QR directly to canvas element)
                 QRCode.toCanvas(qrCodeElement, intentUrl, { 
                     width: 200,
                     margin: 2,
@@ -584,7 +621,7 @@
                 }, function(error) {
                     if (error) {
                         console.error("Canvas QR generation failed:", error);
-                        // Method 2: Try toDataURL
+                        // Method 2: Try toDataURL (generates QR as image data URL)
                         QRCode.toDataURL(intentUrl, { 
                             width: 200,
                             margin: 2,
@@ -596,7 +633,7 @@
                         }, function(err, url) {
                             if (err) {
                                 console.error("DataURL QR generation failed:", err);
-                                // Method 3: Fallback to image URL
+                                // Method 3: Fallback to manual URL display
                                 qrCodeElement.innerHTML = `
                                     <div style="text-align: center; color: var(--danger-color); padding: 20px;">
                                         <p>❌ QR code generation failed</p>
